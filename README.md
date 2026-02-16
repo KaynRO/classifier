@@ -109,3 +109,6 @@ python3 classifier.py --domain example.com --list-vendors check
 # List vendors that support submit
 python3 classifier.py --domain example.com --list-vendors submit
 ```
+
+## Further development
+If you find any bug, please open a pull request and I'll try to act as quick as possible.
