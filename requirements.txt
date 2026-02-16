@@ -1,0 +1,8 @@
+beautifulsoup4
+colorama==0.4.6
+lxml==4.9.3
+psutil==5.9.6
+Requests
+seleniumbase>=4.46.0
+2captcha-python
+dnspython
