@@ -1,0 +1,34 @@
+# Credentials - keep local only
+helpers/credentials.py
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Virtual environment
+.venv/
+venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+logs/
+*.log
+
+# Downloaded files
+downloaded_files/
+
+# Browser session data
+.paloalto_session/
+
+# Test files (temporary)
+test_paloalto_*.py
