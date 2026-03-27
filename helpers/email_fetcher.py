@@ -1,7 +1,3 @@
-"""
-Email fetcher utility for retrieving verification codes via IMAP.
-"""
-
 import imaplib
 import email
 import re
@@ -14,22 +10,8 @@ from helpers.logger import Logger
 logger = Logger("email_fetcher")
 
 
-def fetch_paloalto_verification_code(
-    max_wait_seconds: int = 60,
-    poll_interval: int = 5,
-    max_age_seconds: int = 120
-) -> Optional[str]:
-    """
-    Fetch the latest Palo Alto verification code from Gmail.
-
-    Args:
-        max_wait_seconds: Maximum time to wait for the email
-        poll_interval: Seconds between each poll
-        max_age_seconds: Maximum age of email to consider (ignore older emails)
-
-    Returns:
-        The verification code if found, None otherwise
-    """
+def fetch_paloalto_verification_code(max_wait_seconds: int = 60, poll_interval: int = 5, max_age_seconds: int = 120) -> Optional[str]:
+    # Fetch the latest Palo Alto verification code from Gmail. (2FA)
     logger.info("[*] Connecting to Gmail IMAP...")
 
     start_time = time.time()
@@ -151,7 +133,7 @@ def fetch_paloalto_verification_code(
 
 
 def test_gmail_connection() -> bool:
-    """Test if Gmail IMAP connection works."""
+    #Test if Gmail IMAP connection works.
     try:
         logger.info("[*] Testing Gmail IMAP connection...")
         imap = imaplib.IMAP4_SSL("imap.gmail.com", 993)
