@@ -1,7 +1,4 @@
-import imaplib
-import email
-import re
-import time
+import imaplib, email, re, time
 from email.header import decode_header
 from typing import Optional
 from helpers.credentials import gmail_email, gmail_app_password
