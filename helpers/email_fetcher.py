@@ -130,7 +130,7 @@ def fetch_paloalto_verification_code(max_wait_seconds: int = 60, poll_interval: 
 
 
 def test_gmail_connection() -> bool:
-    #Test if Gmail IMAP connection works.
+    # Test if Gmail IMAP connection works.
     try:
         logger.info("[*] Testing Gmail IMAP connection...")
         imap = imaplib.IMAP4_SSL("imap.gmail.com", 993)
