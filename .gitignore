@@ -34,3 +34,16 @@ downloaded_files/
 test_paloalto_*.py
 
 Plans/
+
+# Environment files (contain secrets)
+.env
+.env.local
+.env.production
+
+# Node
+node_modules/
+frontend/dist/
+frontend/node_modules/
+
+# Docker
+postgres_data/
