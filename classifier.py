@@ -18,6 +18,9 @@ from modules.paloalto import *
 from modules.virustotal import *
 from modules.abusech import *
 from modules.abuseipdb import *
+from modules.google_safebrowsing import *
+from modules.fortiguard import *
+from modules.checkpoint import *
 
 
 def setup_signalhandlers(cleanup_func=None) -> None:
@@ -39,7 +42,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Classifier")
     parser.add_argument("--domain", "-d", metavar="<domain>", dest="domain", required=True, help="Domain to validate")
 
-    check_vendors = ["trendmicro", "mcafee", "lightspeedsystems", "brightcloud", "bluecoat", "paloalto", "zvelo", "watchguard", "talosintelligence"]
+    check_vendors = ["trendmicro", "mcafee", "brightcloud", "bluecoat", "paloalto", "zvelo", "watchguard", "talosintelligence", "fortiguard", "checkpoint"]
     submit_vendors = ["trendmicro", "mcafee", "brightcloud", "bluecoat", "paloalto", "zvelo", "watchguard", "talosintelligence"]
     vendor_choices = ["all"] + check_vendors
     parser.add_argument("--vendor", "-v", metavar="<vendor>", dest="vendor", choices=vendor_choices, default="all", help="Vendor to check: 'all' or use --list-vendors")
@@ -132,7 +135,7 @@ def perform_vendor_operation(args: argparse.Namespace, vendor, driver, max_retri
 
 
 def init_vendors() -> dict:
-    classes = [TrendMicro, McAfee, LightspeedSystems, Brightcloud, Zvelo, Watchguard, PaloAlto, BlueCoat, TalosIntelligence]
+    classes = [TrendMicro, McAfee, LightspeedSystems, Brightcloud, Zvelo, Watchguard, PaloAlto, BlueCoat, TalosIntelligence, FortiGuard, CheckPoint]
     instances = [c() for c in classes]
     mapping = {c.__name__.lower(): inst for c, inst in zip(classes, instances)}
     mapping["all"] = instances
@@ -166,6 +169,7 @@ def run_reputation_check(args: argparse.Namespace, logger: Logger) -> None:
     VirusTotal().check(domain)
     AbuseCH().check(domain)
     AbuseIpDB().check(domain)
+    GoogleSafeBrowsing().check(domain)
 
 
 def run_action_check(args: argparse.Namespace, logger: Logger) -> None:

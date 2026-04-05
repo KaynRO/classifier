@@ -17,3 +17,6 @@ virustotal_api_key = ""
 # WatchGuard credentials
 watchguard_username = ""
 watchguard_password = ""
+
+# Google Safe Browsing API key
+google_safebrowsing_api_key = ""
