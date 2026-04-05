@@ -1,0 +1,95 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: classifier
+      POSTGRES_USER: classifier
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U classifier"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - classifier-net
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - classifier-net
+
+  web:
+    build: ./backend
+    command: >
+      sh -c "alembic upgrade head &&
+             python -c 'from app.seed import seed_vendors_and_admin; import asyncio; asyncio.run(seed_vendors_and_admin())' &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://classifier:${DB_PASSWORD:-changeme}@postgres:5432/classifier
+      DATABASE_URL_SYNC: postgresql://classifier:${DB_PASSWORD:-changeme}@postgres:5432/classifier
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-changeme_jwt_secret_key_at_least_32_chars}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@classifier.local}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-changeme}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - classifier-net
+
+  worker:
+    build: ./worker
+    environment:
+      DATABASE_URL_SYNC: postgresql://classifier:${DB_PASSWORD:-changeme}@postgres:5432/classifier
+      REDIS_URL: redis://redis:6379/0
+      TWOCAPTCHA_API_KEY: ${TWOCAPTCHA_API_KEY:-}
+      VIRUSTOTAL_API_KEY: ${VIRUSTOTAL_API_KEY:-}
+      ABUSEIPDB_API_KEY: ${ABUSEIPDB_API_KEY:-}
+      URLHAUS_API_KEY: ${URLHAUS_API_KEY:-}
+      GOOGLE_SAFEBROWSING_API_KEY: ${GOOGLE_SAFEBROWSING_API_KEY:-}
+      TALOS_USERNAME: ${TALOS_USERNAME:-}
+      TALOS_PASSWORD: ${TALOS_PASSWORD:-}
+      WATCHGUARD_USERNAME: ${WATCHGUARD_USERNAME:-}
+      WATCHGUARD_PASSWORD: ${WATCHGUARD_PASSWORD:-}
+      PALOALTO_USERNAME: ${PALOALTO_USERNAME:-}
+      PALOALTO_PASSWORD: ${PALOALTO_PASSWORD:-}
+      GMAIL_EMAIL: ${GMAIL_EMAIL:-}
+      GMAIL_APP_PASSWORD: ${GMAIL_APP_PASSWORD:-}
+    volumes:
+      - ./modules:/app/classifier/modules:ro
+      - ./helpers:/app/classifier/helpers:ro
+      - ./classifier.py:/app/classifier/classifier.py:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - classifier-net
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - web
+    networks:
+      - classifier-net
+
+volumes:
+  postgres_data:
+
+networks:
+  classifier-net:
+    driver: bridge
