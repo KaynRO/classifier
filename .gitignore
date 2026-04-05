@@ -32,3 +32,14 @@ downloaded_files/
 
 # Test files (temporary)
 test_paloalto_*.py
+
+# Plans
+Plans/
+
+# Environment files (contain secrets)
+.env
+.env.local
+.env.production
+
+# Node
+node_modules/
