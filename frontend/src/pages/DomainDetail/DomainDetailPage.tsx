@@ -1,0 +1,252 @@
+import { useState } from 'react'
+import { useParams, useNavigate } from 'react-router-dom'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { domainsApi, jobsApi, vendorsApi } from '@/api/client'
+import { useWebSocket } from '@/context/WebSocketContext'
+import StatusBadge from '@/components/StatusBadge'
+import CategoryBadge from '@/components/CategoryBadge'
+import { ArrowLeft, Play, Send, RefreshCw, Save } from 'lucide-react'
+
+export default function DomainDetailPage() {
+  const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const { messages } = useWebSocket()
+
+  const { data: domain } = useQuery({
+    queryKey: ['domain', id],
+    queryFn: () => domainsApi.get(id!).then(r => r.data),
+  })
+
+  const { data: results, refetch: refetchResults } = useQuery({
+    queryKey: ['domain-results', id],
+    queryFn: () => domainsApi.results(id!).then(r => r.data),
+    refetchInterval: 5000,
+  })
+
+  const { data: vendors } = useQuery({
+    queryKey: ['vendors'],
+    queryFn: () => vendorsApi.list().then(r => r.data),
+  })
+
+  const { data: history } = useQuery({
+    queryKey: ['domain-history', id],
+    queryFn: () => domainsApi.history(id!, { per_page: 20 }).then(r => r.data),
+  })
+
+  const checkMutation = useMutation({
+    mutationFn: (vendor?: string) => jobsApi.check({ domain_id: id!, vendor }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['jobs'] })
+      refetchResults()
+    },
+  })
+
+  const reputationMutation = useMutation({
+    mutationFn: () => jobsApi.reputation({ domain_id: id! }),
+    onSuccess: () => refetchResults(),
+  })
+
+  const submitMutation = useMutation({
+    mutationFn: (vendor?: string) => jobsApi.submit({ domain_id: id!, vendor }),
+    onSuccess: () => refetchResults(),
+  })
+
+  // Editing state
+  const [editing, setEditing] = useState(false)
+  const [desiredCategory, setDesiredCategory] = useState('')
+  const [notes, setNotes] = useState('')
+  const [customText, setCustomText] = useState('')
+  const [emailForSubmit, setEmailForSubmit] = useState('')
+
+  const startEdit = () => {
+    setDesiredCategory(domain?.desired_category || '')
+    setNotes(domain?.notes || '')
+    setCustomText(domain?.custom_text || '')
+    setEmailForSubmit(domain?.email_for_submit || '')
+    setEditing(true)
+  }
+
+  const saveMutation = useMutation({
+    mutationFn: () => domainsApi.update(id!, {
+      desired_category: desiredCategory || undefined,
+      notes: notes || undefined,
+      custom_text: customText || undefined,
+      email_for_submit: emailForSubmit || undefined,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['domain', id] })
+      setEditing(false)
+    },
+  })
+
+  const categories = ['Business', 'Education', 'Finance', 'Health', 'News', 'Internet']
+
+  // Build result lookup by vendor name
+  const resultMap: Record<string, any> = {}
+  results?.forEach((r: any) => {
+    const vendorName = vendors?.find((v: any) => v.id === r.vendor_id)?.name
+    if (vendorName) resultMap[vendorName] = r
+  })
+
+  const categoryVendors = vendors?.filter((v: any) => v.vendor_type === 'category') || []
+  const reputationVendors = vendors?.filter((v: any) => v.vendor_type === 'reputation') || []
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center gap-4">
+        <button onClick={() => navigate('/domains')} className="p-2 rounded-md hover:bg-accent"><ArrowLeft size={18} /></button>
+        <div className="flex-1">
+          <h2 className="text-2xl font-bold tracking-tight">{domain?.domain}</h2>
+          <p className="text-muted-foreground text-sm">{domain?.display_name || 'Domain Detail'}</p>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={() => checkMutation.mutate()} className="flex items-center gap-2 px-3 py-2 rounded-md border border-border text-sm hover:bg-accent">
+            <Play size={14} /> Check All
+          </button>
+          <button onClick={() => reputationMutation.mutate()} className="flex items-center gap-2 px-3 py-2 rounded-md border border-border text-sm hover:bg-accent">
+            <RefreshCw size={14} /> Reputation
+          </button>
+          {domain?.desired_category && (
+            <button onClick={() => submitMutation.mutate()} className="flex items-center gap-2 px-3 py-2 rounded-md bg-primary text-primary-foreground text-sm hover:opacity-90">
+              <Send size={14} /> Submit All
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Domain Config */}
+      <div className="rounded-lg border border-border bg-card p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold">Configuration</h3>
+          {!editing ? (
+            <button onClick={startEdit} className="text-sm text-primary hover:underline">Edit</button>
+          ) : (
+            <button onClick={() => saveMutation.mutate()} className="flex items-center gap-1 text-sm text-primary hover:underline">
+              <Save size={14} /> Save
+            </button>
+          )}
+        </div>
+
+        {editing ? (
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium mb-1">Desired Category</label>
+              <select value={desiredCategory} onChange={e => setDesiredCategory(e.target.value)}
+                className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm">
+                <option value="">None</option>
+                {categories.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Email for Submit</label>
+              <input type="email" value={emailForSubmit} onChange={e => setEmailForSubmit(e.target.value)}
+                className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm" />
+            </div>
+            <div className="col-span-2">
+              <label className="block text-sm font-medium mb-1">Notes</label>
+              <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
+                className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm resize-none" />
+            </div>
+            <div className="col-span-2">
+              <label className="block text-sm font-medium mb-1">Custom Text (for submissions)</label>
+              <textarea value={customText} onChange={e => setCustomText(e.target.value)} rows={2}
+                className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm resize-none" />
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+            <div><p className="text-muted-foreground">Category</p><p className="font-medium mt-1">{domain?.desired_category || 'Not set'}</p></div>
+            <div><p className="text-muted-foreground">Email</p><p className="font-medium mt-1">{domain?.email_for_submit || 'Not set'}</p></div>
+            <div><p className="text-muted-foreground">Notes</p><p className="font-medium mt-1">{domain?.notes || 'None'}</p></div>
+            <div><p className="text-muted-foreground">Custom Text</p><p className="font-medium mt-1">{domain?.custom_text || 'None'}</p></div>
+          </div>
+        )}
+      </div>
+
+      {/* Category Vendor Cards */}
+      <div>
+        <h3 className="font-semibold mb-3">Category Vendors</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {categoryVendors.map((vendor: any) => {
+            const r = resultMap[vendor.name]
+            return (
+              <div key={vendor.id} className="rounded-lg border border-border bg-card p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="font-medium text-sm">{vendor.display_name}</h4>
+                  <StatusBadge status={r?.status} />
+                </div>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Category</span>
+                    <CategoryBadge category={r?.category} desired={domain?.desired_category} />
+                  </div>
+                  {r?.completed_at && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Last Check</span>
+                      <span className="text-xs">{new Date(r.completed_at).toLocaleString()}</span>
+                    </div>
+                  )}
+                </div>
+                <div className="flex gap-1 mt-3">
+                  <button onClick={() => checkMutation.mutate(vendor.name)}
+                    className="flex-1 py-1.5 rounded text-xs font-medium border border-border hover:bg-accent text-center">
+                    Re-check
+                  </button>
+                  {vendor.supports_submit && domain?.desired_category && (
+                    <button onClick={() => submitMutation.mutate(vendor.name)}
+                      className="flex-1 py-1.5 rounded text-xs font-medium bg-primary text-primary-foreground hover:opacity-90 text-center">
+                      Submit
+                    </button>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Reputation Vendors */}
+      <div>
+        <h3 className="font-semibold mb-3">Reputation Vendors</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+          {reputationVendors.map((vendor: any) => {
+            const r = resultMap[vendor.name]
+            return (
+              <div key={vendor.id} className="rounded-lg border border-border bg-card p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="font-medium text-sm">{vendor.display_name}</h4>
+                  <StatusBadge status={r?.status} />
+                </div>
+                {r?.reputation && <p className="text-xs text-muted-foreground">{r.reputation}</p>}
+                {r?.error_message && <p className="text-xs text-red-500 mt-1 truncate">{r.error_message.split('\n')[0]}</p>}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* History */}
+      {history?.items && history.items.length > 0 && (
+        <div className="rounded-lg border border-border bg-card">
+          <div className="p-4 border-b border-border">
+            <h3 className="font-semibold">Check History</h3>
+          </div>
+          <div className="divide-y divide-border max-h-64 overflow-y-auto">
+            {history.items.map((h: any) => (
+              <div key={h.id} className="px-4 py-3 flex items-center justify-between text-sm">
+                <div className="flex items-center gap-3">
+                  <StatusBadge status={h.status} />
+                  <span>{vendors?.find((v: any) => v.id === h.vendor_id)?.display_name || 'Unknown'}</span>
+                  {h.category && <CategoryBadge category={h.category} desired={domain?.desired_category} />}
+                </div>
+                <span className="text-xs text-muted-foreground">{new Date(h.created_at).toLocaleString()}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
