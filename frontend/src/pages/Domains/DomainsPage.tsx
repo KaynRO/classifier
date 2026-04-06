@@ -308,11 +308,13 @@ function SafetyRow({ domain, reputationVendors, onDelete }: { domain: any; reput
           </td>
         )
       })}
-      <td className="px-3 py-2.5 text-center">
-        <button onClick={onDelete}
-          className="p-1 rounded hover:bg-destructive/15 text-muted-foreground/50 hover:text-destructive transition-colors" title="Delete">
-          <Trash2 size={13} />
-        </button>
+      <td className="px-3 py-2.5">
+        <div className="flex items-start pt-px">
+          <button onClick={onDelete}
+            className="px-2.5 py-1 rounded text-[11px] font-medium border border-transparent min-h-[28px] hover:bg-destructive/15 text-muted-foreground/40 hover:text-destructive transition-colors" title="Delete">
+            <Trash2 size={13} />
+          </button>
+        </div>
       </td>
     </tr>
   )
@@ -578,12 +580,17 @@ function DeleteConfirmDialog({ domain, onConfirm, onCancel }: { domain: any; onC
 
 /* ========== ADD DOMAIN MODAL ========== */
 function AddDomainModal({ onClose }: { onClose: () => void }) {
+  const [tab, setTab] = useState<'manual' | 'csv'>('manual')
   const [domain, setDomain] = useState('')
   const [displayName, setDisplayName] = useState('')
   const [category, setCategory] = useState('')
   const [email, setEmail] = useState('')
   const [notes, setNotes] = useState('')
   const [error, setError] = useState('')
+  const [csvFile, setCsvFile] = useState<File | null>(null)
+  const [csvParsed, setCsvParsed] = useState<any[]>([])
+  const [csvImporting, setCsvImporting] = useState(false)
+  const [csvProgress, setCsvProgress] = useState({ done: 0, total: 0, errors: 0 })
   const queryClient = useQueryClient()
 
   const mutation = useMutation({
@@ -598,59 +605,235 @@ function AddDomainModal({ onClose }: { onClose: () => void }) {
 
   const categories = CATEGORIES
 
+  const downloadTemplate = () => {
+    const header = 'domain,display_name,desired_category,email_for_submit,notes'
+    const example = 'example.com,My Website,Business,admin@example.com,Main company site'
+    const blob = new Blob([header + '\n' + example + '\n'], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'domain_import_template.csv'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const handleCsvFile = (file: File) => {
+    setCsvFile(file)
+    setError('')
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const text = e.target?.result as string
+      const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
+      if (lines.length < 2) { setError('CSV must have a header row and at least one data row'); return }
+
+      const header = lines[0].toLowerCase().split(',').map(h => h.trim())
+      const domainIdx = header.indexOf('domain')
+      if (domainIdx === -1) { setError('CSV must have a "domain" column'); return }
+
+      const displayIdx = header.indexOf('display_name')
+      const catIdx = header.indexOf('desired_category')
+      const emailIdx = header.indexOf('email_for_submit')
+      const notesIdx = header.indexOf('notes')
+
+      const rows: any[] = []
+      for (let i = 1; i < lines.length; i++) {
+        const cols = lines[i].split(',').map(c => c.trim())
+        const d = cols[domainIdx]
+        if (!d) continue
+        rows.push({
+          domain: d,
+          display_name: displayIdx >= 0 ? cols[displayIdx] || undefined : undefined,
+          desired_category: catIdx >= 0 ? cols[catIdx] || undefined : undefined,
+          email_for_submit: emailIdx >= 0 ? cols[emailIdx] || undefined : undefined,
+          notes: notesIdx >= 0 ? cols[notesIdx] || undefined : undefined,
+        })
+      }
+      setCsvParsed(rows)
+    }
+    reader.readAsText(file)
+  }
+
+  const importCsv = async () => {
+    setCsvImporting(true)
+    setCsvProgress({ done: 0, total: csvParsed.length, errors: 0 })
+    let errors = 0
+    for (let i = 0; i < csvParsed.length; i++) {
+      try {
+        await domainsApi.create(csvParsed[i])
+      } catch { errors++ }
+      setCsvProgress({ done: i + 1, total: csvParsed.length, errors })
+    }
+    setCsvImporting(false)
+    queryClient.invalidateQueries({ queryKey: ['domains'] })
+    toast.success(`Imported ${csvParsed.length - errors} domains${errors > 0 ? ` (${errors} failed)` : ''}`)
+    if (errors === 0) onClose()
+  }
+
+  const tabClass = (t: string) =>
+    `px-4 py-2 text-sm font-medium rounded-t-md transition-colors ${
+      tab === t ? 'bg-card text-foreground border border-border border-b-transparent -mb-px' : 'text-muted-foreground hover:text-foreground'
+    }`
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-lg bg-card rounded-xl border border-border p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-5">
-          <h3 className="text-lg font-semibold">Add Domain</h3>
+      <div className="w-full max-w-xl bg-card rounded-xl border border-border shadow-2xl" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 pt-5 pb-3">
+          <h3 className="text-lg font-semibold">Add Domains</h3>
           <button onClick={onClose} className="p-1 rounded hover:bg-accent text-muted-foreground"><X size={16} /></button>
         </div>
 
-        {error && <div className="p-3 mb-4 rounded-md bg-destructive/15 text-destructive text-sm">{error}</div>}
-
-        <div className="space-y-3">
-          <div>
-            <label className="block text-xs font-medium text-muted-foreground mb-1.5">Domain *</label>
-            <input type="text" value={domain} onChange={e => setDomain(e.target.value)} placeholder="example.com"
-              className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-1 focus:ring-ring" autoFocus />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-muted-foreground mb-1.5">Display Name</label>
-              <input type="text" value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="My Website"
-                className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-1 focus:ring-ring" />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-muted-foreground mb-1.5">Desired Category</label>
-              <select value={category} onChange={e => setCategory(e.target.value)}
-                className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-1 focus:ring-ring">
-                <option value="">Select...</option>
-                {categories.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </div>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-muted-foreground mb-1.5">Email for Submissions</label>
-            <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="admin@example.com"
-              className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-1 focus:ring-ring" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-muted-foreground mb-1.5">Notes</label>
-            <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder="Optional notes..."
-              className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-1 focus:ring-ring resize-none" />
-          </div>
+        {/* Tabs */}
+        <div className="flex px-6 gap-1 border-b border-border">
+          <button onClick={() => setTab('manual')} className={tabClass('manual')}>Manual Entry</button>
+          <button onClick={() => setTab('csv')} className={tabClass('csv')}>CSV Import</button>
         </div>
 
-        <div className="flex justify-end gap-2 mt-5">
-          <button onClick={onClose} className="px-4 py-2 rounded-md border border-border text-sm font-medium hover:bg-accent">Cancel</button>
-          <button
-            onClick={() => mutation.mutate({ domain, display_name: displayName || undefined, desired_category: category || undefined, email_for_submit: email || undefined, notes: notes || undefined })}
-            disabled={!domain || mutation.isPending}
-            className="flex items-center gap-2 px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:brightness-110 disabled:opacity-50 transition-all"
-          >
-            {mutation.isPending && <Loader2 size={14} className="animate-spin" />}
-            {mutation.isPending ? 'Adding...' : 'Add Domain'}
-          </button>
+        <div className="px-6 py-5">
+          {error && <div className="p-3 mb-4 rounded-md bg-destructive/15 text-destructive text-sm">{error}</div>}
+
+          {tab === 'manual' ? (
+            <>
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1.5">Domain *</label>
+                  <input type="text" value={domain} onChange={e => setDomain(e.target.value)} placeholder="example.com"
+                    className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-1 focus:ring-ring" autoFocus />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground mb-1.5">Display Name</label>
+                    <input type="text" value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="My Website"
+                      className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-1 focus:ring-ring" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground mb-1.5">Desired Category</label>
+                    <select value={category} onChange={e => setCategory(e.target.value)}
+                      className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-1 focus:ring-ring">
+                      <option value="">Select...</option>
+                      {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1.5">Email for Submissions</label>
+                  <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="admin@example.com"
+                    className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-1 focus:ring-ring" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1.5">Notes</label>
+                  <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder="Optional notes..."
+                    className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-1 focus:ring-ring resize-none" />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 mt-5">
+                <button onClick={onClose} className="px-4 py-2 rounded-md border border-border text-sm font-medium hover:bg-accent">Cancel</button>
+                <button
+                  onClick={() => mutation.mutate({ domain, display_name: displayName || undefined, desired_category: category || undefined, email_for_submit: email || undefined, notes: notes || undefined })}
+                  disabled={!domain || mutation.isPending}
+                  className="flex items-center gap-2 px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:brightness-110 disabled:opacity-50 transition-all"
+                >
+                  {mutation.isPending && <Loader2 size={14} className="animate-spin" />}
+                  {mutation.isPending ? 'Adding...' : 'Add Domain'}
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="space-y-4">
+                {/* Template download */}
+                <div className="flex items-center justify-between p-3 rounded-md bg-accent/50 border border-border">
+                  <div>
+                    <p className="text-sm font-medium">CSV Template</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">Download the template, fill it in, then upload</p>
+                  </div>
+                  <button onClick={downloadTemplate}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium border border-border hover:bg-accent transition-colors">
+                    <Download size={13} /> Download Template
+                  </button>
+                </div>
+
+                {/* File upload */}
+                <div>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1.5">Upload CSV File</label>
+                  <div
+                    className="border-2 border-dashed border-border rounded-lg p-6 text-center hover:border-primary/40 transition-colors cursor-pointer"
+                    onClick={() => document.getElementById('csv-file-input')?.click()}
+                    onDragOver={e => { e.preventDefault(); e.currentTarget.classList.add('border-primary/40') }}
+                    onDragLeave={e => e.currentTarget.classList.remove('border-primary/40')}
+                    onDrop={e => { e.preventDefault(); e.currentTarget.classList.remove('border-primary/40'); if (e.dataTransfer.files[0]) handleCsvFile(e.dataTransfer.files[0]) }}
+                  >
+                    <input id="csv-file-input" type="file" accept=".csv" className="hidden"
+                      onChange={e => { if (e.target.files?.[0]) handleCsvFile(e.target.files[0]) }} />
+                    {csvFile ? (
+                      <div>
+                        <p className="text-sm font-medium">{csvFile.name}</p>
+                        <p className="text-xs text-muted-foreground mt-1">{csvParsed.length} domain{csvParsed.length !== 1 ? 's' : ''} found</p>
+                      </div>
+                    ) : (
+                      <div>
+                        <Download size={20} className="mx-auto text-muted-foreground/40 mb-2" />
+                        <p className="text-sm text-muted-foreground">Click or drag & drop a CSV file</p>
+                        <p className="text-xs text-muted-foreground/60 mt-1">Required column: domain. Optional: display_name, desired_category, email_for_submit, notes</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Preview parsed rows */}
+                {csvParsed.length > 0 && (
+                  <div className="rounded-md border border-border overflow-hidden max-h-40 overflow-y-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-border bg-[hsl(var(--table-header,var(--secondary)))] text-muted-foreground">
+                          <th className="px-3 py-1.5 text-left font-medium">Domain</th>
+                          <th className="px-3 py-1.5 text-left font-medium">Category</th>
+                          <th className="px-3 py-1.5 text-left font-medium">Email</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {csvParsed.slice(0, 20).map((row, i) => (
+                          <tr key={i} className="border-b border-border">
+                            <td className="px-3 py-1.5 font-medium">{row.domain}</td>
+                            <td className="px-3 py-1.5 text-muted-foreground">{row.desired_category || '--'}</td>
+                            <td className="px-3 py-1.5 text-muted-foreground">{row.email_for_submit || '--'}</td>
+                          </tr>
+                        ))}
+                        {csvParsed.length > 20 && (
+                          <tr><td colSpan={3} className="px-3 py-1.5 text-muted-foreground text-center">...and {csvParsed.length - 20} more</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* Import progress */}
+                {csvImporting && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                      <span>Importing...</span>
+                      <span>{csvProgress.done}/{csvProgress.total}{csvProgress.errors > 0 ? ` (${csvProgress.errors} errors)` : ''}</span>
+                    </div>
+                    <div className="h-2 bg-secondary rounded-full overflow-hidden">
+                      <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${(csvProgress.done / csvProgress.total) * 100}%` }} />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-2 mt-5">
+                <button onClick={onClose} className="px-4 py-2 rounded-md border border-border text-sm font-medium hover:bg-accent">Cancel</button>
+                <button
+                  onClick={importCsv}
+                  disabled={csvParsed.length === 0 || csvImporting}
+                  className="flex items-center gap-2 px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:brightness-110 disabled:opacity-50 transition-all"
+                >
+                  {csvImporting && <Loader2 size={14} className="animate-spin" />}
+                  {csvImporting ? `Importing ${csvProgress.done}/${csvProgress.total}...` : `Import ${csvParsed.length} Domain${csvParsed.length !== 1 ? 's' : ''}`}
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>
