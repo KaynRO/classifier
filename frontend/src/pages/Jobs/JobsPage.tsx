@@ -109,7 +109,7 @@ function JobRow({ job, displayStatus, domainName, total, done, allDone, entries,
           {entries.length > 0 && (expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />)}
         </td>
         <td className="px-4 py-2.5">
-          <span className="font-medium text-primary/90 dark:text-[hsl(173,50%,60%)]">{domainName}</span>
+          <span className="font-medium text-primary/90 dark:text-[hsl(265,50%,72%)]">{domainName}</span>
         </td>
         <td className="px-4 py-2.5 capitalize">{job.action_type}</td>
         <td className="px-4 py-2.5">{job.vendor_filter || 'All'}</td>

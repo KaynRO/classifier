@@ -45,7 +45,7 @@ export default function Layout() {
               className={({ isActive }) =>
                 `flex items-center gap-2.5 px-3 py-2 rounded-md text-[13px] font-medium transition-all duration-150 ${
                   isActive
-                    ? 'bg-primary/15 text-primary dark:text-[hsl(173,58%,55%)]'
+                    ? 'bg-primary/15 text-primary dark:text-[hsl(265,55%,70%)]'
                     : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
                 }`
               }

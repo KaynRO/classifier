@@ -1,9 +1,26 @@
-import { useState, useCallback } from 'react'
+import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { domainsApi, jobsApi, vendorsApi } from '@/api/client'
 import StatusBadge from '@/components/StatusBadge'
 import CategoryBadge from '@/components/CategoryBadge'
-import { Plus, Search, Play, Trash2, ChevronDown, ChevronRight, Send, RefreshCw, Save, X, Pencil, Loader2, ScanSearch } from 'lucide-react'
+import { Plus, Search, Trash2, ChevronDown, ChevronRight, Save, X, Loader2, ScanSearch } from 'lucide-react'
+
+// Vendors to hide from the dashboard
+const HIDDEN_VENDORS = new Set(['lightspeedsystems'])
+
+function timeAgo(dateStr: string | null | undefined): string {
+  if (!dateStr) return ''
+  const d = new Date(dateStr)
+  const now = new Date()
+  const diffMs = now.getTime() - d.getTime()
+  const mins = Math.floor(diffMs / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  const days = Math.floor(hrs / 24)
+  return `${days}d ago`
+}
 
 export default function DomainsPage() {
   const [search, setSearch] = useState('')
@@ -37,8 +54,8 @@ export default function DomainsPage() {
     onMutate: () => setScanningAll(true),
   })
 
-  const categoryVendors = vendors?.filter((v: any) => v.vendor_type === 'category') || []
-  const reputationVendors = vendors?.filter((v: any) => v.vendor_type === 'reputation') || []
+  const categoryVendors = vendors?.filter((v: any) => v.vendor_type === 'category' && !HIDDEN_VENDORS.has(v.name)) || []
+  const reputationVendors = vendors?.filter((v: any) => v.vendor_type === 'reputation' && !HIDDEN_VENDORS.has(v.name)) || []
 
   return (
     <div className="space-y-6">
@@ -78,7 +95,7 @@ export default function DomainsPage() {
         />
       </div>
 
-      {/* SAFETY STATUS section */}
+      {/* SAFETY STATUS */}
       <section className="rounded-lg border border-border bg-card overflow-hidden">
         <div className="px-5 py-3 border-b border-border bg-[hsl(var(--table-header,var(--secondary)))]">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Safety Status</h3>
@@ -96,33 +113,29 @@ export default function DomainsPage() {
             {data?.items?.map((domain: any) => (
               <SafetyRow key={domain.id} domain={domain} reputationVendors={reputationVendors} />
             ))}
-            {isLoading && (
-              <tr><td colSpan={20} className="px-5 py-8 text-center text-muted-foreground text-sm">
-                <Loader2 size={16} className="animate-spin inline mr-2" />Loading...
-              </td></tr>
-            )}
+            {isLoading && <LoadingRow cols={1 + reputationVendors.length} />}
             {!isLoading && (!data?.items || data.items.length === 0) && (
-              <tr><td colSpan={20} className="px-5 py-8 text-center text-muted-foreground text-sm">No domains yet</td></tr>
+              <EmptyRow cols={1 + reputationVendors.length} text="No domains yet" />
             )}
           </tbody>
         </table>
       </section>
 
-      {/* WEB PROXY CATEGORIZATION section */}
+      {/* WEB PROXY CATEGORIZATION */}
       <section className="rounded-lg border border-border bg-card overflow-hidden">
         <div className="px-5 py-3 border-b border-border bg-[hsl(var(--table-header,var(--secondary)))]">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Web Proxy Categorization</h3>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="text-sm" style={{ minWidth: `${200 + 140 + categoryVendors.length * 170 + 40}px` }}>
             <thead>
               <tr className="border-b border-border text-[11px] uppercase tracking-wider text-muted-foreground">
-                <th className="px-5 py-2.5 text-left font-medium sticky left-0 bg-card z-10 min-w-[180px]">Domain</th>
-                <th className="px-4 py-2.5 text-left font-medium min-w-[140px]">Desired Category</th>
+                <th className="px-5 py-2.5 text-left font-medium w-[200px] sticky left-0 bg-card z-10">Domain</th>
+                <th className="px-4 py-2.5 text-left font-medium w-[140px]">Desired Category</th>
                 {categoryVendors.map((v: any) => (
-                  <th key={v.id} className="px-3 py-2.5 text-center font-medium min-w-[150px]">{v.display_name}</th>
+                  <th key={v.id} className="px-3 py-2.5 text-center font-medium w-[170px]">{v.display_name}</th>
                 ))}
-                <th className="px-3 py-2.5 text-center font-medium w-10"></th>
+                <th className="px-3 py-2.5 text-center font-medium w-[40px]"></th>
               </tr>
             </thead>
             <tbody>
@@ -136,15 +149,9 @@ export default function DomainsPage() {
                   onDelete={() => deleteMutation.mutate(domain.id)}
                 />
               ))}
-              {isLoading && (
-                <tr><td colSpan={20} className="px-5 py-8 text-center text-muted-foreground text-sm">
-                  <Loader2 size={16} className="animate-spin inline mr-2" />Loading...
-                </td></tr>
-              )}
+              {isLoading && <LoadingRow cols={2 + categoryVendors.length + 1} />}
               {!isLoading && (!data?.items || data.items.length === 0) && (
-                <tr><td colSpan={20} className="px-5 py-8 text-center text-muted-foreground text-sm">
-                  No domains yet. Click "Add Domain" to get started.
-                </td></tr>
+                <EmptyRow cols={2 + categoryVendors.length + 1} text="No domains yet. Click &quot;Add Domain&quot; to get started." />
               )}
             </tbody>
           </table>
@@ -156,24 +163,34 @@ export default function DomainsPage() {
   )
 }
 
+function LoadingRow({ cols }: { cols: number }) {
+  return <tr><td colSpan={cols} className="px-5 py-8 text-center text-muted-foreground text-sm"><Loader2 size={16} className="animate-spin inline mr-2" />Loading...</td></tr>
+}
+function EmptyRow({ cols, text }: { cols: number; text: string }) {
+  return <tr><td colSpan={cols} className="px-5 py-8 text-center text-muted-foreground text-sm">{text}</td></tr>
+}
 
-/* ---------- SAFETY ROW ---------- */
+
+/* ========== SAFETY ROW ========== */
 function SafetyRow({ domain, reputationVendors }: { domain: any; reputationVendors: any[] }) {
   const queryClient = useQueryClient()
-  const [loadingVendor, setLoadingVendor] = useState<string | null>(null)
+  const [busyVendors, setBusyVendors] = useState<Set<string>>(new Set())
 
   const { data: results } = useQuery({
     queryKey: ['domain-results', domain.id],
     queryFn: () => domainsApi.results(domain.id).then(r => r.data),
-    refetchInterval: 5000,
+    refetchInterval: 4000,
   })
 
   const checkMutation = useMutation({
     mutationFn: (vendor: string) => jobsApi.reputation({ domain_id: domain.id }),
-    onMutate: (vendor) => setLoadingVendor(vendor),
-    onSettled: () => {
-      setLoadingVendor(null)
-      queryClient.invalidateQueries({ queryKey: ['domain-results', domain.id] })
+    onMutate: (vendor) => setBusyVendors(prev => new Set(prev).add(vendor)),
+    onSettled: (_, __, vendor) => {
+      // Don't clear immediately — let the refetch show the running state, clear after delay
+      setTimeout(() => {
+        setBusyVendors(prev => { const s = new Set(prev); s.delete(vendor); return s })
+        queryClient.invalidateQueries({ queryKey: ['domain-results', domain.id] })
+      }, 3000)
     },
   })
 
@@ -183,21 +200,30 @@ function SafetyRow({ domain, reputationVendors }: { domain: any; reputationVendo
   return (
     <tr className="border-b border-border hover:bg-[hsl(var(--table-row-hover,var(--accent)))] transition-colors">
       <td className="px-5 py-2.5">
-        <span className="font-medium text-primary/90 dark:text-[hsl(173,50%,60%)]">{domain.domain}</span>
+        <span className="font-medium text-primary/90 dark:text-[hsl(265,50%,72%)]">{domain.domain}</span>
       </td>
       {reputationVendors.map((v: any) => {
         const r = resultMap[v.id]
-        const isLoading = loadingVendor === v.name || r?.status === 'running'
+        const isBusy = busyVendors.has(v.name) || r?.status === 'running' || r?.status === 'pending'
         return (
           <td key={v.id} className="px-4 py-2.5">
             <div className="flex items-center gap-2">
-              <StatusBadge status={r?.status === 'success' ? 'clean' : r?.status} loading={isLoading} />
+              <div className="flex flex-col">
+                <StatusBadge status={r?.status === 'success' ? 'clean' : r?.status} loading={isBusy} />
+                {r?.completed_at && !isBusy && (
+                  <span className="text-[9px] text-muted-foreground/60 mt-0.5">{timeAgo(r.completed_at)}</span>
+                )}
+              </div>
               <button
                 onClick={() => checkMutation.mutate(v.name)}
-                disabled={isLoading}
-                className="px-2 py-1 rounded text-[11px] font-medium border border-border hover:bg-accent hover:text-accent-foreground transition-colors disabled:opacity-40"
+                disabled={isBusy}
+                className={`px-2 py-1 rounded text-[11px] font-medium border transition-all duration-200 ${
+                  isBusy
+                    ? 'border-border/50 text-muted-foreground/30 cursor-not-allowed bg-muted/30'
+                    : 'border-border hover:bg-accent hover:text-accent-foreground'
+                }`}
               >
-                {isLoading ? <Loader2 size={10} className="animate-spin" /> : 'verify'}
+                {isBusy ? <Loader2 size={10} className="animate-spin" /> : 'verify'}
               </button>
             </div>
           </td>
@@ -208,35 +234,37 @@ function SafetyRow({ domain, reputationVendors }: { domain: any; reputationVendo
 }
 
 
-/* ---------- CATEGORIZATION ROW ---------- */
+/* ========== CATEGORIZATION ROW ========== */
 function CategorizationRow({ domain, categoryVendors, expanded, onToggle, onDelete }: {
   domain: any; categoryVendors: any[]; expanded: boolean; onToggle: () => void; onDelete: () => void
 }) {
   const queryClient = useQueryClient()
-  const [loadingVendors, setLoadingVendors] = useState<Set<string>>(new Set())
+  const [busyVendors, setBusyVendors] = useState<Set<string>>(new Set())
 
   const { data: results } = useQuery({
     queryKey: ['domain-results', domain.id],
     queryFn: () => domainsApi.results(domain.id).then(r => r.data),
-    refetchInterval: 5000,
+    refetchInterval: 4000,
   })
+
+  const startBusy = (key: string) => setBusyVendors(prev => new Set(prev).add(key))
+  const clearBusy = (key: string) => {
+    setTimeout(() => {
+      setBusyVendors(prev => { const s = new Set(prev); s.delete(key); return s })
+      queryClient.invalidateQueries({ queryKey: ['domain-results', domain.id] })
+    }, 3000)
+  }
 
   const checkVendorMutation = useMutation({
     mutationFn: (vendor: string) => jobsApi.check({ domain_id: domain.id, vendor }),
-    onMutate: (vendor) => setLoadingVendors(prev => new Set(prev).add(vendor)),
-    onSettled: (_, __, vendor) => {
-      setLoadingVendors(prev => { const s = new Set(prev); s.delete(vendor); return s })
-      queryClient.invalidateQueries({ queryKey: ['domain-results', domain.id] })
-    },
+    onMutate: (vendor) => startBusy(`check-${vendor}`),
+    onSettled: (_, __, vendor) => clearBusy(`check-${vendor}`),
   })
 
   const submitVendorMutation = useMutation({
     mutationFn: (vendor: string) => jobsApi.submit({ domain_id: domain.id, vendor }),
-    onMutate: (vendor) => setLoadingVendors(prev => new Set(prev).add(`submit-${vendor}`)),
-    onSettled: (_, __, vendor) => {
-      setLoadingVendors(prev => { const s = new Set(prev); s.delete(`submit-${vendor}`); return s })
-      queryClient.invalidateQueries({ queryKey: ['domain-results', domain.id] })
-    },
+    onMutate: (vendor) => startBusy(`submit-${vendor}`),
+    onSettled: (_, __, vendor) => clearBusy(`submit-${vendor}`),
   })
 
   const resultMap: Record<number, any> = {}
@@ -250,46 +278,59 @@ function CategorizationRow({ domain, categoryVendors, expanded, onToggle, onDele
             <button onClick={onToggle} className="text-muted-foreground hover:text-foreground transition-colors">
               {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
             </button>
-            <span className="font-medium text-primary/90 dark:text-[hsl(173,50%,60%)]">{domain.domain}</span>
+            <span className="font-medium text-primary/90 dark:text-[hsl(265,50%,72%)]">{domain.domain}</span>
           </div>
         </td>
         <td className="px-4 py-2.5">
           {domain.desired_category
-            ? <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-primary/15 text-primary dark:text-[hsl(173,50%,60%)]">{domain.desired_category}</span>
-            : <span className="text-[11px] text-muted-foreground/50">not set</span>
+            ? <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-primary/15 text-primary dark:text-[hsl(265,50%,72%)]">{domain.desired_category}</span>
+            : <span className="text-[11px] text-muted-foreground/50 italic">not set</span>
           }
         </td>
         {categoryVendors.map((v: any) => {
           const r = resultMap[v.id]
-          const isChecking = loadingVendors.has(v.name) || r?.status === 'running'
-          const isSubmitting = loadingVendors.has(`submit-${v.name}`)
+          const isCheckBusy = busyVendors.has(`check-${v.name}`) || r?.status === 'running' || r?.status === 'pending'
+          const isSubmitBusy = busyVendors.has(`submit-${v.name}`)
+          const anyBusy = isCheckBusy || isSubmitBusy
           return (
-            <td key={v.id} className="px-3 py-2.5 text-center">
-              <div className="flex flex-col items-center gap-1.5">
-                {/* Status badge */}
-                {isChecking ? (
+            <td key={v.id} className="px-3 py-2 text-center">
+              <div className="flex flex-col items-center gap-1">
+                {/* Result */}
+                {isCheckBusy ? (
                   <StatusBadge status="running" />
                 ) : r?.status === 'success' ? (
                   <CategoryBadge category={r.category} desired={domain.desired_category} />
                 ) : (
                   <StatusBadge status={r?.status} />
                 )}
-                {/* Actions row */}
-                <div className="flex items-center gap-1">
+                {/* Last checked timestamp */}
+                {r?.completed_at && !isCheckBusy && (
+                  <span className="text-[9px] text-muted-foreground/60">{timeAgo(r.completed_at)}</span>
+                )}
+                {/* Buttons */}
+                <div className="flex items-center gap-1 mt-0.5">
                   <button
                     onClick={() => checkVendorMutation.mutate(v.name)}
-                    disabled={isChecking}
-                    className="px-1.5 py-0.5 rounded text-[10px] font-medium border border-border hover:bg-accent transition-colors disabled:opacity-40"
+                    disabled={isCheckBusy}
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-medium border transition-all duration-200 ${
+                      isCheckBusy
+                        ? 'border-border/40 text-muted-foreground/30 cursor-not-allowed bg-muted/20'
+                        : 'border-border hover:bg-accent hover:text-accent-foreground'
+                    }`}
                   >
-                    {isChecking ? <Loader2 size={9} className="animate-spin" /> : 'check'}
+                    {isCheckBusy ? <Loader2 size={9} className="animate-spin" /> : 'check'}
                   </button>
                   {v.supports_submit && domain.desired_category && (
                     <button
                       onClick={() => submitVendorMutation.mutate(v.name)}
-                      disabled={isSubmitting}
-                      className="px-1.5 py-0.5 rounded text-[10px] font-medium border border-primary/30 text-primary hover:bg-primary/10 transition-colors disabled:opacity-40"
+                      disabled={isSubmitBusy || isCheckBusy}
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-medium border transition-all duration-200 ${
+                        isSubmitBusy || isCheckBusy
+                          ? 'border-primary/20 text-primary/30 cursor-not-allowed bg-primary/5'
+                          : 'border-primary/30 text-primary hover:bg-primary/10'
+                      }`}
                     >
-                      {isSubmitting ? <Loader2 size={9} className="animate-spin" /> : 'submit'}
+                      {isSubmitBusy ? <Loader2 size={9} className="animate-spin" /> : 'submit'}
                     </button>
                   )}
                 </div>
@@ -305,7 +346,6 @@ function CategorizationRow({ domain, categoryVendors, expanded, onToggle, onDele
         </td>
       </tr>
 
-      {/* Expanded config panel */}
       {expanded && (
         <tr>
           <td colSpan={categoryVendors.length + 3} className="px-0 py-0">
@@ -318,7 +358,7 @@ function CategorizationRow({ domain, categoryVendors, expanded, onToggle, onDele
 }
 
 
-/* ---------- DOMAIN CONFIG PANEL ---------- */
+/* ========== DOMAIN CONFIG PANEL ========== */
 function DomainConfigPanel({ domain }: { domain: any }) {
   const queryClient = useQueryClient()
   const [desiredCategory, setDesiredCategory] = useState(domain.desired_category || '')
@@ -349,8 +389,8 @@ function DomainConfigPanel({ domain }: { domain: any }) {
 
   return (
     <div className="bg-[hsl(var(--table-header,var(--secondary)))] border-t border-border px-6 py-4">
-      <div className="flex items-end gap-4 max-w-4xl">
-        <div className="flex-1">
+      <div className="flex items-end gap-4">
+        <div className="flex-1 min-w-[140px]">
           <label className="block text-[11px] font-medium text-muted-foreground mb-1">Desired Category</label>
           <select value={desiredCategory} onChange={handleChange(setDesiredCategory)}
             className="w-full px-2.5 py-1.5 rounded border border-input bg-card text-sm focus:outline-none focus:ring-1 focus:ring-ring">
@@ -358,19 +398,19 @@ function DomainConfigPanel({ domain }: { domain: any }) {
             {categories.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
         </div>
-        <div className="flex-1">
+        <div className="flex-1 min-w-[180px]">
           <label className="block text-[11px] font-medium text-muted-foreground mb-1">Email for Submissions</label>
           <input type="email" value={emailForSubmit} onChange={handleChange(setEmailForSubmit)}
             className="w-full px-2.5 py-1.5 rounded border border-input bg-card text-sm focus:outline-none focus:ring-1 focus:ring-ring"
             placeholder="admin@example.com" />
         </div>
-        <div className="flex-1">
+        <div className="flex-1 min-w-[140px]">
           <label className="block text-[11px] font-medium text-muted-foreground mb-1">Notes</label>
           <input type="text" value={notes} onChange={handleChange(setNotes)}
             className="w-full px-2.5 py-1.5 rounded border border-input bg-card text-sm focus:outline-none focus:ring-1 focus:ring-ring"
             placeholder="Optional notes..." />
         </div>
-        <div className="flex-1">
+        <div className="flex-1 min-w-[140px]">
           <label className="block text-[11px] font-medium text-muted-foreground mb-1">Custom Submit Text</label>
           <input type="text" value={customText} onChange={handleChange(setCustomText)}
             className="w-full px-2.5 py-1.5 rounded border border-input bg-card text-sm focus:outline-none focus:ring-1 focus:ring-ring"
@@ -390,7 +430,7 @@ function DomainConfigPanel({ domain }: { domain: any }) {
 }
 
 
-/* ---------- ADD DOMAIN MODAL ---------- */
+/* ========== ADD DOMAIN MODAL ========== */
 function AddDomainModal({ onClose }: { onClose: () => void }) {
   const [domain, setDomain] = useState('')
   const [displayName, setDisplayName] = useState('')
