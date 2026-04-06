@@ -28,7 +28,7 @@ export default function JobsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-semibold tracking-tight">Jobs</h2>
+        <h2 className="text-2xl font-bold tracking-tight">Jobs</h2>
         <p className="text-sm text-muted-foreground mt-0.5">Track vendor check and submission operations</p>
       </div>
 

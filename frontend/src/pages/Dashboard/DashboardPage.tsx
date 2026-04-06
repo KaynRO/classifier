@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
 import { dashboardApi, jobsApi } from '@/api/client'
 import { useWebSocket } from '@/context/WebSocketContext'
 import StatusBadge from '@/components/StatusBadge'
@@ -73,9 +74,9 @@ export default function DashboardPage() {
               {matrix?.items?.map((row: any) => (
                 <tr key={row.domain.id} className="border-b border-border hover:bg-accent/50 transition-colors">
                   <td className="px-4 py-3 font-medium sticky left-0 bg-card z-10">
-                    <a href={`/domains/${row.domain.id}`} className="hover:underline">
+                    <Link to={`/domains/${row.domain.id}`} className="hover:underline text-primary/90 dark:text-[hsl(265,50%,72%)]">
                       {row.domain.domain}
-                    </a>
+                    </Link>
                     {row.domain.desired_category && (
                       <span className="ml-2 text-xs text-muted-foreground">({row.domain.desired_category})</span>
                     )}

@@ -63,7 +63,7 @@ export default function DomainsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-semibold tracking-tight">Domain Categorization & Safety</h2>
+          <h2 className="text-2xl font-bold tracking-tight">Domain Categorization & Safety</h2>
           <p className="text-sm text-muted-foreground mt-0.5">Threat reputation and web proxy categorization across security vendors</p>
         </div>
         <div className="flex gap-2">
@@ -333,7 +333,7 @@ function CategorizationRow({ domain, categoryVendors, expanded, onToggle, onDele
                   <button
                     onClick={() => checkVendorMutation.mutate(v.name)}
                     disabled={isCheckBusy}
-                    className={`px-1.5 py-0.5 rounded text-[10px] font-medium border transition-all duration-200 ${
+                    className={`px-2.5 py-1 rounded text-[11px] min-h-[28px] font-medium border transition-all duration-200 ${
                       isCheckBusy
                         ? 'border-border/40 text-muted-foreground/30 cursor-not-allowed bg-muted/20'
                         : 'border-border hover:bg-accent hover:text-accent-foreground'
@@ -345,7 +345,7 @@ function CategorizationRow({ domain, categoryVendors, expanded, onToggle, onDele
                     <button
                       onClick={() => submitVendorMutation.mutate(v.name)}
                       disabled={isSubmitBusy || isCheckBusy}
-                      className={`px-1.5 py-0.5 rounded text-[10px] font-medium border transition-all duration-200 ${
+                      className={`px-2.5 py-1 rounded text-[11px] min-h-[28px] font-medium border transition-all duration-200 ${
                         isSubmitBusy || isCheckBusy
                           ? 'border-primary/20 text-primary/30 cursor-not-allowed bg-primary/5'
                           : 'border-primary/30 text-primary hover:bg-primary/10'
