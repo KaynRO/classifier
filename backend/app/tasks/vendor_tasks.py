@@ -38,12 +38,13 @@ def publish_update(job_id: str, vendor_name: str, status: str, category: str = N
 
 
 def update_job_progress(db: Session, job_id: str, vendor_name: str, status: str):
-    job = db.get(Job, UUID(job_id))
-    if job:
-        progress = dict(job.progress or {})
-        progress[vendor_name] = status
-        job.progress = progress
-        db.commit()
+    """Update job progress using atomic JSON merge to avoid race conditions (H3 fix)."""
+    from sqlalchemy import text
+    db.execute(
+        text("UPDATE jobs SET progress = COALESCE(progress, '{}'::jsonb) || :new_val WHERE id = :job_id"),
+        {"new_val": json.dumps({vendor_name: status}), "job_id": job_id}
+    )
+    db.commit()
 
 
 def save_check_result(
@@ -132,6 +133,7 @@ def run_vendor_check(self, job_id: str, domain_id: str, domain_name: str,
         )
         update_job_progress(db, job_id, vendor_name, "success")
         publish_update(job_id, vendor_name, "success", category=result.get("category"))
+        return {"vendor": vendor_name, "status": "success"}
 
     except Exception as e:
         error_msg = f"{str(e)}\n{traceback.format_exc()}"
@@ -142,7 +144,25 @@ def run_vendor_check(self, job_id: str, domain_id: str, domain_name: str,
         )
         update_job_progress(db, job_id, vendor_name, "failed")
         publish_update(job_id, vendor_name, "failed", error=str(e))
+        return {"vendor": vendor_name, "status": "failed"}
 
+    finally:
+        db.close()
+
+
+@celery_app.task(name="app.tasks.vendor_tasks.finalize_job")
+def finalize_job(results, job_id: str):
+    """Chord callback: marks the parent job as completed after all vendor checks finish."""
+    db = SessionLocal()
+    try:
+        job = db.get(Job, UUID(job_id))
+        if job:
+            job.status = "completed"
+            job.completed_at = datetime.now(timezone.utc)
+            db.commit()
+        publish_update(job_id, "__job__", "completed")
+    except Exception:
+        pass
     finally:
         db.close()
 
@@ -172,8 +192,8 @@ def run_domain_job(self, job_id: str, domain_id: str, domain_name: str,
         email = domain.email_for_submit if domain else None
         desired_category = domain.desired_category if domain else None
 
-        # Fan out: dispatch one task per vendor
-        from celery import group
+        # Fan out vendor checks with a chord callback to finalize the job
+        from celery import chord
         tasks = []
         for v in vendors:
             tasks.append(
@@ -185,12 +205,18 @@ def run_domain_job(self, job_id: str, domain_id: str, domain_name: str,
             )
 
         if tasks:
-            job_group = group(tasks)
-            job_group.apply_async()
+            chord(tasks)(finalize_job.s(job_id))
+        else:
+            # No vendors — mark as completed immediately
+            job = db.get(Job, UUID(job_id))
+            if job:
+                job.status = "completed"
+                job.completed_at = datetime.now(timezone.utc)
+                db.commit()
 
-        # Update job status
+        # Update job status to running
         job = db.get(Job, UUID(job_id))
-        if job:
+        if job and job.status != "completed":
             job.status = "running"
             job.started_at = datetime.now(timezone.utc)
             db.commit()

@@ -91,9 +91,41 @@ def run_vendor_operation(
     result = {"vendor": vendor_name, "domain": domain, "action": action}
 
     if vendor_name in API_VENDORS:
-        # API-based vendors: no browser needed
-        # Capture logger output
-        vendor.check(domain)
+        # API-based vendors: no browser needed, single-arg check(domain)
+        import io, logging
+
+        # Capture log output to extract results
+        log_capture = io.StringIO()
+        handler = logging.StreamHandler(log_capture)
+        handler.setLevel(logging.DEBUG)
+        if hasattr(vendor, 'logger') and hasattr(vendor.logger, 'logger'):
+            vendor.logger.logger.addHandler(handler)
+
+        try:
+            check_result = vendor.check(domain)
+        except TypeError:
+            check_result = None
+
+        # Extract info from captured logs
+        log_output = log_capture.getvalue()
+        if hasattr(vendor, 'logger') and hasattr(vendor.logger, 'logger'):
+            vendor.logger.logger.removeHandler(handler)
+
+        # Parse log output for results
+        result["raw_log"] = log_output
+        if "clean" in log_output.lower() or "no threats" in log_output.lower() or "no abuse" in log_output.lower():
+            result["reputation"] = "clean"
+        elif "flagged" in log_output.lower() or "malicious" in log_output.lower():
+            result["reputation"] = "flagged"
+        elif "abuse" in log_output.lower():
+            result["reputation"] = "suspicious"
+
+        # Try to extract category from return value
+        if isinstance(check_result, str):
+            result["category"] = check_result
+        elif isinstance(check_result, tuple) and len(check_result) > 0:
+            result["category"] = str(check_result[0])
+
         result["status"] = "completed"
         return result
 
