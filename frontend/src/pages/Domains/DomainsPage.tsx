@@ -216,16 +216,7 @@ function VendorHeaders({ categoryVendors, domains }: { categoryVendors: any[]; d
       <th className="px-5 py-2.5 text-left font-medium w-[220px] sticky left-0 bg-card z-10">Domain</th>
       <th className="px-4 py-2.5 text-left font-medium w-[150px]">Desired Category</th>
       {categoryVendors.map((v: any) => (
-        <th key={v.id} className="px-4 py-2.5 text-center font-medium w-[195px]">
-          <div className="flex flex-col items-center gap-0.5">
-            <span>{v.display_name}</span>
-            {latestPerVendor[v.id] && (
-              <span className="text-[9px] font-normal normal-case text-muted-foreground/50">
-                {timeAgo(latestPerVendor[v.id]!)}
-              </span>
-            )}
-          </div>
-        </th>
+        <th key={v.id} className="px-4 py-2.5 text-center font-medium w-[195px]">{v.display_name}</th>
       ))}
       <th className="px-3 py-2.5 text-center font-medium w-[80px]">Actions</th>
     </tr>
