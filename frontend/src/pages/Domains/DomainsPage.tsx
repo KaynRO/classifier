@@ -268,21 +268,16 @@ function SafetyRow({ domain, reputationVendors, onDelete }: { domain: any; reput
 
   return (
     <tr className="border-b border-border hover:bg-[hsl(var(--table-row-hover,var(--accent)))] transition-colors">
-      <td className="px-5 py-2.5">
+      <td className="px-5 py-3 align-middle">
         <span className="font-medium text-primary/90 dark:text-[hsl(265,50%,72%)]">{domain.domain}</span>
       </td>
       {reputationVendors.map((v: any) => {
         const r = resultMap[v.id]
         const isBusy = busyVendors.has(v.name) || r?.status === 'running' || r?.status === 'pending'
         return (
-          <td key={v.id} className="px-4 py-2.5">
-            <div className="flex items-center gap-2.5">
-              <div className="flex flex-col min-w-[65px]">
-                <StatusBadge status={r?.status === 'success' ? 'clean' : r?.status} loading={isBusy} />
-                {r?.completed_at && !isBusy && (
-                  <span className="text-[9px] text-muted-foreground/50 mt-0.5">{timeAgo(r.completed_at)}</span>
-                )}
-              </div>
+          <td key={v.id} className="px-4 py-3 align-middle">
+            <div className="inline-flex items-center gap-2.5">
+              <StatusBadge status={r?.status === 'success' ? 'clean' : r?.status} loading={isBusy} />
               <button
                 onClick={() => checkMutation.mutate(v.name)}
                 disabled={isBusy}
@@ -295,16 +290,17 @@ function SafetyRow({ domain, reputationVendors, onDelete }: { domain: any; reput
                 {isBusy ? <Loader2 size={10} className="animate-spin" /> : 'Verify'}
               </button>
             </div>
+            {r?.completed_at && !isBusy && (
+              <div className="text-[9px] text-muted-foreground/50 mt-0.5">{timeAgo(r.completed_at)}</div>
+            )}
           </td>
         )
       })}
-      <td className="px-3 py-2.5">
-        <div className="flex items-center">
-          <button onClick={onDelete}
-            className="px-3 py-1 rounded-md text-[11px] font-medium bg-secondary hover:bg-destructive/15 text-muted-foreground/50 hover:text-destructive transition-all" title="Delete">
-            <Trash2 size={13} />
-          </button>
-        </div>
+      <td className="px-3 py-3 align-middle">
+        <button onClick={onDelete}
+          className="px-3 py-1 rounded-md text-[11px] font-medium bg-secondary hover:bg-destructive/15 text-muted-foreground/50 hover:text-destructive transition-all" title="Delete">
+          <Trash2 size={13} />
+        </button>
       </td>
     </tr>
   )
