@@ -87,7 +87,7 @@ export default function Layout() {
 
       {/* Main */}
       <main className="flex-1 overflow-y-auto bg-background">
-        <div className="p-6 max-w-[1600px]">
+        <div className="p-6">
           <Outlet />
         </div>
       </main>

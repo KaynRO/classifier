@@ -27,6 +27,7 @@ export default function DomainsPage() {
   const [showAdd, setShowAdd] = useState(false)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [scanningAll, setScanningAll] = useState(false)
+  const [domainToDelete, setDomainToDelete] = useState<any>(null)
   const queryClient = useQueryClient()
 
   const { data, isLoading } = useQuery({
@@ -100,25 +101,28 @@ export default function DomainsPage() {
         <div className="px-5 py-3 border-b border-border bg-[hsl(var(--table-header,var(--secondary)))]">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Safety Status</h3>
         </div>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border text-[11px] uppercase tracking-wider text-muted-foreground">
-              <th className="px-5 py-2.5 text-left font-medium">Domain</th>
-              {reputationVendors.map((v: any) => (
-                <th key={v.id} className="px-4 py-2.5 text-left font-medium">{v.display_name}</th>
+        <div className="overflow-x-auto">
+          <table className="text-sm" style={{ minWidth: `${220 + reputationVendors.length * 210 + 50}px` }}>
+            <thead>
+              <tr className="border-b border-border text-[11px] uppercase tracking-wider text-muted-foreground">
+                <th className="px-5 py-2.5 text-left font-medium w-[220px]">Domain</th>
+                {reputationVendors.map((v: any) => (
+                  <th key={v.id} className="px-4 py-2.5 text-left font-medium w-[210px]">{v.display_name}</th>
+                ))}
+                <th className="px-3 py-2.5 w-[50px]"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {data?.items?.map((domain: any) => (
+                <SafetyRow key={domain.id} domain={domain} reputationVendors={reputationVendors} onDelete={() => setDomainToDelete(domain)} />
               ))}
-            </tr>
-          </thead>
-          <tbody>
-            {data?.items?.map((domain: any) => (
-              <SafetyRow key={domain.id} domain={domain} reputationVendors={reputationVendors} />
-            ))}
-            {isLoading && <LoadingRow cols={1 + reputationVendors.length} />}
-            {!isLoading && (!data?.items || data.items.length === 0) && (
-              <EmptyRow cols={1 + reputationVendors.length} text="No domains yet" />
-            )}
-          </tbody>
-        </table>
+              {isLoading && <LoadingRow cols={2 + reputationVendors.length} />}
+              {!isLoading && (!data?.items || data.items.length === 0) && (
+                <EmptyRow cols={2 + reputationVendors.length} text="No domains yet" />
+              )}
+            </tbody>
+          </table>
+        </div>
       </section>
 
       {/* WEB PROXY CATEGORIZATION */}
@@ -127,15 +131,15 @@ export default function DomainsPage() {
           <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Web Proxy Categorization</h3>
         </div>
         <div className="overflow-x-auto">
-          <table className="text-sm" style={{ minWidth: `${200 + 140 + categoryVendors.length * 170 + 40}px` }}>
+          <table className="text-sm" style={{ minWidth: `${220 + 150 + categoryVendors.length * 195 + 50}px` }}>
             <thead>
               <tr className="border-b border-border text-[11px] uppercase tracking-wider text-muted-foreground">
-                <th className="px-5 py-2.5 text-left font-medium w-[200px] sticky left-0 bg-card z-10">Domain</th>
-                <th className="px-4 py-2.5 text-left font-medium w-[140px]">Desired Category</th>
+                <th className="px-5 py-2.5 text-left font-medium w-[220px] sticky left-0 bg-card z-10">Domain</th>
+                <th className="px-4 py-2.5 text-left font-medium w-[150px]">Desired Category</th>
                 {categoryVendors.map((v: any) => (
-                  <th key={v.id} className="px-3 py-2.5 text-center font-medium w-[170px]">{v.display_name}</th>
+                  <th key={v.id} className="px-4 py-2.5 text-center font-medium w-[195px]">{v.display_name}</th>
                 ))}
-                <th className="px-3 py-2.5 text-center font-medium w-[40px]"></th>
+                <th className="px-3 py-2.5 text-center font-medium w-[50px]"></th>
               </tr>
             </thead>
             <tbody>
@@ -146,7 +150,7 @@ export default function DomainsPage() {
                   categoryVendors={categoryVendors}
                   expanded={expandedId === domain.id}
                   onToggle={() => setExpandedId(prev => prev === domain.id ? null : domain.id)}
-                  onDelete={() => deleteMutation.mutate(domain.id)}
+                  onDelete={() => setDomainToDelete(domain)}
                 />
               ))}
               {isLoading && <LoadingRow cols={2 + categoryVendors.length + 1} />}
@@ -159,6 +163,17 @@ export default function DomainsPage() {
       </section>
 
       {showAdd && <AddDomainModal onClose={() => setShowAdd(false)} />}
+
+      {domainToDelete && (
+        <DeleteConfirmDialog
+          domain={domainToDelete}
+          onConfirm={() => {
+            deleteMutation.mutate(domainToDelete.id)
+            setDomainToDelete(null)
+          }}
+          onCancel={() => setDomainToDelete(null)}
+        />
+      )}
     </div>
   )
 }
@@ -172,7 +187,7 @@ function EmptyRow({ cols, text }: { cols: number; text: string }) {
 
 
 /* ========== SAFETY ROW ========== */
-function SafetyRow({ domain, reputationVendors }: { domain: any; reputationVendors: any[] }) {
+function SafetyRow({ domain, reputationVendors, onDelete }: { domain: any; reputationVendors: any[]; onDelete: () => void }) {
   const queryClient = useQueryClient()
   const [busyVendors, setBusyVendors] = useState<Set<string>>(new Set())
 
@@ -229,6 +244,12 @@ function SafetyRow({ domain, reputationVendors }: { domain: any; reputationVendo
           </td>
         )
       })}
+      <td className="px-3 py-2.5 text-center">
+        <button onClick={onDelete}
+          className="p-1 rounded hover:bg-destructive/15 text-muted-foreground/50 hover:text-destructive transition-colors" title="Delete">
+          <Trash2 size={13} />
+        </button>
+      </td>
     </tr>
   )
 }
@@ -424,6 +445,35 @@ function DomainConfigPanel({ domain }: { domain: any }) {
           {saveMutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
           Save
         </button>
+      </div>
+    </div>
+  )
+}
+
+
+/* ========== DELETE CONFIRM DIALOG ========== */
+function DeleteConfirmDialog({ domain, onConfirm, onCancel }: { domain: any; onConfirm: () => void; onCancel: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onCancel}>
+      <div className="w-full max-w-sm bg-card rounded-xl border border-border p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
+        <h3 className="text-lg font-semibold mb-2">Delete Domain</h3>
+        <p className="text-sm text-muted-foreground mb-1">
+          Are you sure you want to remove this domain?
+        </p>
+        <p className="text-sm font-medium text-foreground mb-5 px-3 py-2 rounded bg-destructive/10 border border-destructive/20">
+          {domain.domain}
+        </p>
+        <p className="text-xs text-muted-foreground mb-5">
+          This will remove the domain and all its check results from the dashboard. The action cannot be undone.
+        </p>
+        <div className="flex justify-end gap-2">
+          <button onClick={onCancel} className="px-4 py-2 rounded-md border border-border text-sm font-medium hover:bg-accent transition-colors">
+            Cancel
+          </button>
+          <button onClick={onConfirm} className="px-4 py-2 rounded-md bg-destructive text-destructive-foreground text-sm font-medium hover:brightness-110 transition-all">
+            Delete
+          </button>
+        </div>
       </div>
     </div>
   )
