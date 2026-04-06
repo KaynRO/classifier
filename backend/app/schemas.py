@@ -1,7 +1,9 @@
 from datetime import datetime
 from typing import Optional
 from uuid import UUID
-from pydantic import BaseModel, EmailStr, Field
+import re
+import html
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 # --- Auth ---
@@ -32,19 +34,59 @@ class TokenResponse(BaseModel):
 
 
 # --- Domain ---
+DOMAIN_RE = re.compile(r'^[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$')
+VALID_CATEGORIES = {"Business", "Education", "Finance", "Health", "News", "Internet"}
+
+def _sanitize(v: str | None) -> str | None:
+    if v is None:
+        return None
+    return html.escape(v.strip(), quote=True)
+
 class DomainCreate(BaseModel):
     domain: str = Field(min_length=1, max_length=255)
     display_name: Optional[str] = None
     desired_category: Optional[str] = None
-    notes: Optional[str] = None
-    custom_text: Optional[str] = None
+    notes: Optional[str] = Field(None, max_length=1000)
+    custom_text: Optional[str] = Field(None, max_length=1000)
     email_for_submit: Optional[str] = None
+
+    @field_validator("domain")
+    @classmethod
+    def validate_domain(cls, v: str) -> str:
+        v = v.strip().lower().lstrip("https://").lstrip("http://").rstrip("/")
+        if not DOMAIN_RE.match(v):
+            raise ValueError("Invalid domain format")
+        return v
+
+    @field_validator("desired_category")
+    @classmethod
+    def validate_category(cls, v: str | None) -> str | None:
+        if v and v not in VALID_CATEGORIES:
+            raise ValueError(f"Invalid category. Must be one of: {', '.join(VALID_CATEGORIES)}")
+        return v
+
+    @field_validator("notes", "custom_text", "display_name")
+    @classmethod
+    def sanitize_text(cls, v: str | None) -> str | None:
+        return _sanitize(v)
 
 class DomainUpdate(BaseModel):
     display_name: Optional[str] = None
     desired_category: Optional[str] = None
-    notes: Optional[str] = None
-    custom_text: Optional[str] = None
+    notes: Optional[str] = Field(None, max_length=1000)
+    custom_text: Optional[str] = Field(None, max_length=1000)
+
+    @field_validator("desired_category")
+    @classmethod
+    def validate_category(cls, v: str | None) -> str | None:
+        if v and v not in VALID_CATEGORIES:
+            raise ValueError(f"Invalid category. Must be one of: {', '.join(VALID_CATEGORIES)}")
+        return v
+
+    @field_validator("notes", "custom_text", "display_name")
+    @classmethod
+    def sanitize_text(cls, v: str | None) -> str | None:
+        return _sanitize(v)
     email_for_submit: Optional[str] = None
     is_active: Optional[bool] = None
 

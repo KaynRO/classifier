@@ -4,12 +4,14 @@ from app.routers import auth, domains, vendors, jobs, dashboard, ws
 
 app = FastAPI(title="Classifier Dashboard API", version="1.0.0")
 
+import os
+allowed_origins = os.environ.get("CORS_ORIGINS", "http://localhost,http://localhost:80").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 app.include_router(auth.router)
