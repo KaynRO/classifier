@@ -49,7 +49,9 @@ services:
       - classifier-net
 
   worker:
-    build: ./worker
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
     environment:
       DATABASE_URL_SYNC: postgresql://classifier:${DB_PASSWORD:-changeme}@postgres:5432/classifier
       REDIS_URL: redis://redis:6379/0
@@ -66,10 +68,6 @@ services:
       PALOALTO_PASSWORD: ${PALOALTO_PASSWORD:-}
       GMAIL_EMAIL: ${GMAIL_EMAIL:-}
       GMAIL_APP_PASSWORD: ${GMAIL_APP_PASSWORD:-}
-    volumes:
-      - ./modules:/app/classifier/modules:ro
-      - ./helpers:/app/classifier/helpers:ro
-      - ./classifier.py:/app/classifier/classifier.py:ro
     depends_on:
       postgres:
         condition: service_healthy

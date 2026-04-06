@@ -1,14 +1,12 @@
-# Credentials - keep local only
-helpers/credentials.py
+# Credentials
+engine/helpers/credentials.py
 
-# Python cache
+# Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 .Python
-
-# Virtual environment
 .venv/
 venv/
 ENV/
@@ -24,18 +22,13 @@ ENV/
 logs/
 *.log
 
-# Downloaded files
+# Runtime artifacts
 downloaded_files/
-
-# Browser session data
 .paloalto_session/
-
-# Test files (temporary)
 test_paloalto_*.py
-
 Plans/
 
-# Environment files (contain secrets)
+# Environment files (secrets)
 .env
 .env.local
 .env.production
@@ -43,7 +36,6 @@ Plans/
 # Node
 node_modules/
 frontend/dist/
-frontend/node_modules/
 
 # Docker
 postgres_data/
