@@ -242,8 +242,7 @@ function EmptyRow({ cols, text }: { cols: number; text: string }) {
 
 /* ========== SAFETY ROW ========== */
 function SafetyRow({ domain, reputationVendors, onDelete }: { domain: any; reputationVendors: any[]; onDelete: () => void }) {
-  const queryClient = useQueryClient()
-  const [busyVendors, setBusyVendors] = useState<Set<string>>(new Set())
+  const [triggerTimes, setTriggerTimes] = useState<Record<string, number>>({})
 
   const { data: results } = useQuery({
     queryKey: ['domain-results', domain.id],
@@ -251,20 +250,22 @@ function SafetyRow({ domain, reputationVendors, onDelete }: { domain: any; reput
     refetchInterval: 4000,
   })
 
-  const checkMutation = useMutation({
-    mutationFn: (vendor: string) => jobsApi.reputation({ domain_id: domain.id }),
-    onMutate: (vendor) => { setBusyVendors(prev => new Set(prev).add(vendor)); toast('Verifying...', { icon: '🔍' }) },
-    onError: () => toast.error('Verification failed'),
-    onSettled: (_, __, vendor) => {
-      setTimeout(() => {
-        setBusyVendors(prev => { const s = new Set(prev); s.delete(vendor); return s })
-        queryClient.invalidateQueries({ queryKey: ['domain-results', domain.id] })
-      }, 3000)
-    },
-  })
-
   const resultMap: Record<number, any> = {}
   results?.forEach((r: any) => { resultMap[r.vendor_id] = r })
+
+  const isBusy = (vendorName: string, vendorId: number) => {
+    const t = triggerTimes[vendorName]
+    if (!t) return false
+    const r = resultMap[vendorId]
+    if (!r?.completed_at) return true
+    return new Date(r.completed_at).getTime() < t
+  }
+
+  const checkMutation = useMutation({
+    mutationFn: (vendor: string) => jobsApi.reputation({ domain_id: domain.id }),
+    onMutate: (vendor) => { setTriggerTimes(prev => ({ ...prev, [vendor]: Date.now() })); toast('Verifying...', { icon: '🔍' }) },
+    onError: () => toast.error('Verification failed'),
+  })
 
   return (
     <tr className="border-b border-border hover:bg-[hsl(var(--table-row-hover,var(--accent)))] transition-colors">
@@ -273,34 +274,33 @@ function SafetyRow({ domain, reputationVendors, onDelete }: { domain: any; reput
       </td>
       {reputationVendors.map((v: any) => {
         const r = resultMap[v.id]
-        const isBusy = busyVendors.has(v.name) || r?.status === 'running' || r?.status === 'pending'
+        const busy = isBusy(v.name, v.id) || r?.status === 'running' || r?.status === 'pending'
         return (
           <td key={v.id} className="px-4 py-3 align-middle">
-            <div className="inline-flex items-center gap-2.5">
-              <StatusBadge status={r?.status === 'success' ? 'clean' : r?.status} loading={isBusy} />
+            <div className="flex items-center gap-2.5 h-[26px]">
+              <StatusBadge status={r?.status === 'success' ? 'clean' : r?.status} loading={busy} />
               <button
                 onClick={() => checkMutation.mutate(v.name)}
-                disabled={isBusy}
-                className={`px-3 py-1 rounded-md text-[11px] font-medium transition-all duration-200 ${
-                  isBusy
+                disabled={busy}
+                className={`px-3 h-[26px] rounded-md text-[11px] font-medium transition-all duration-200 ${
+                  busy
                     ? 'bg-muted/40 text-muted-foreground/30 cursor-not-allowed'
                     : 'bg-secondary hover:bg-accent text-secondary-foreground hover:text-accent-foreground'
                 }`}
               >
-                {isBusy ? <Loader2 size={10} className="animate-spin" /> : 'Verify'}
+                {busy ? <Loader2 size={10} className="animate-spin" /> : 'Verify'}
               </button>
             </div>
-            {r?.completed_at && !isBusy && (
-              <div className="text-[9px] text-muted-foreground/50 mt-0.5">{timeAgo(r.completed_at)}</div>
-            )}
           </td>
         )
       })}
       <td className="px-3 py-3 align-middle">
-        <button onClick={onDelete}
-          className="px-3 py-1 rounded-md text-[11px] font-medium bg-secondary hover:bg-destructive/15 text-muted-foreground/50 hover:text-destructive transition-all" title="Delete">
-          <Trash2 size={13} />
-        </button>
+        <div className="flex items-center h-[26px]">
+          <button onClick={onDelete}
+            className="px-3 h-[26px] rounded-md text-[11px] font-medium bg-secondary hover:bg-destructive/15 text-muted-foreground/50 hover:text-destructive transition-all flex items-center" title="Delete">
+            <Trash2 size={13} />
+          </button>
+        </div>
       </td>
     </tr>
   )
@@ -322,27 +322,24 @@ function CategorizationRow({ domain, categoryVendors, expanded, onToggle, onDele
 
   const allVendorNames = categoryVendors.map((v: any) => v.name)
 
-  const startBusy = (key: string) => setBusyVendors(prev => new Set(prev).add(key))
-  const startBusyAll = (prefix: string) => setBusyVendors(prev => {
-    const s = new Set(prev)
-    allVendorNames.forEach(n => s.add(`${prefix}-${n}`))
-    return s
+  // Track trigger timestamps — vendor stays busy until its result updates past this time
+  const [triggerTimes, setTriggerTimes] = useState<Record<string, number>>({})
+
+  const triggerBusy = (key: string) => setTriggerTimes(prev => ({ ...prev, [key]: Date.now() }))
+  const triggerBusyAll = (prefix: string) => setTriggerTimes(prev => {
+    const next = { ...prev }
+    allVendorNames.forEach(n => { next[`${prefix}-${n}`] = Date.now() })
+    return next
   })
-  const clearBusy = (key: string) => {
-    setTimeout(() => {
-      setBusyVendors(prev => { const s = new Set(prev); s.delete(key); return s })
-      queryClient.invalidateQueries({ queryKey: ['domain-results', domain.id] })
-    }, 3000)
-  }
-  const clearBusyAll = (prefix: string) => {
-    setTimeout(() => {
-      setBusyVendors(prev => {
-        const s = new Set(prev)
-        allVendorNames.forEach(n => s.delete(`${prefix}-${n}`))
-        return s
-      })
-      queryClient.invalidateQueries({ queryKey: ['domain-results', domain.id] })
-    }, 5000)
+
+  // A vendor is busy if we triggered it AND the result hasn't updated since
+  const isVendorBusy = (vendorName: string, vendorId: number, prefix: string = 'check') => {
+    const triggerTime = triggerTimes[`${prefix}-${vendorName}`]
+    if (!triggerTime) return false
+    const r = resultMap[vendorId]
+    if (!r?.completed_at) return true // no result yet — still busy
+    const resultTime = new Date(r.completed_at).getTime()
+    return resultTime < triggerTime // result is older than our trigger
   }
 
   const checkVendorMutation = useMutation({
@@ -351,15 +348,10 @@ function CategorizationRow({ domain, categoryVendors, expanded, onToggle, onDele
       vendor: vendor === '__all__' ? undefined : vendor,
     }),
     onMutate: (vendor) => {
-      if (vendor === '__all__') { startBusyAll('check'); toast('Checking all vendors...', { icon: '🔄' }) }
-      else { startBusy(`check-${vendor}`); toast(`Checking ${vendor}...`, { icon: '🔄' }) }
+      if (vendor === '__all__') { triggerBusyAll('check'); toast('Checking all vendors...', { icon: '🔄' }) }
+      else { triggerBusy(`check-${vendor}`); toast(`Checking ${vendor}...`, { icon: '🔄' }) }
     },
     onError: (_, vendor) => toast.error(`Check failed${vendor !== '__all__' ? ` for ${vendor}` : ''}`),
-    onSettled: (_, __, vendor) => {
-      if (vendor === '__all__') clearBusyAll('check')
-      else clearBusy(`check-${vendor}`)
-      queryClient.invalidateQueries({ queryKey: ['domain-results', domain.id] })
-    },
   })
 
   const submitVendorMutation = useMutation({
@@ -368,15 +360,10 @@ function CategorizationRow({ domain, categoryVendors, expanded, onToggle, onDele
       vendor: vendor === '__all__' ? undefined : vendor,
     }),
     onMutate: (vendor) => {
-      if (vendor === '__all__') { startBusyAll('submit'); toast('Submitting to all vendors...', { icon: '📤' }) }
-      else { startBusy(`submit-${vendor}`); toast(`Submitting to ${vendor}...`, { icon: '📤' }) }
+      if (vendor === '__all__') { triggerBusyAll('submit'); toast('Submitting to all vendors...', { icon: '📤' }) }
+      else { triggerBusy(`submit-${vendor}`); toast(`Submitting to ${vendor}...`, { icon: '📤' }) }
     },
     onError: (_, vendor) => toast.error(`Submit failed${vendor !== '__all__' ? ` for ${vendor}` : ''}`),
-    onSettled: (_, __, vendor) => {
-      if (vendor === '__all__') clearBusyAll('submit')
-      else clearBusy(`submit-${vendor}`)
-      queryClient.invalidateQueries({ queryKey: ['domain-results', domain.id] })
-    },
   })
 
   const resultMap: Record<number, any> = {}
@@ -403,9 +390,8 @@ function CategorizationRow({ domain, categoryVendors, expanded, onToggle, onDele
         </td>
         {categoryVendors.map((v: any) => {
           const r = resultMap[v.id]
-          const isCheckBusy = busyVendors.has(`check-${v.name}`) || r?.status === 'running' || r?.status === 'pending'
-          const isSubmitBusy = busyVendors.has(`submit-${v.name}`)
-          const anyBusy = isCheckBusy || isSubmitBusy
+          const isCheckBusy = isVendorBusy(v.name, v.id, 'check') || r?.status === 'running' || r?.status === 'pending'
+          const isSubmitBusy = isVendorBusy(v.name, v.id, 'submit')
           return (
             <td key={v.id} className="px-3 py-2 text-center">
               <div className="flex flex-col items-center gap-1">

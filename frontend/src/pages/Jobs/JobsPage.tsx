@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { jobsApi, domainsApi } from '@/api/client'
+import { jobsApi, domainsApi, vendorsApi } from '@/api/client'
 import { useWebSocket } from '@/context/WebSocketContext'
 import StatusBadge from '@/components/StatusBadge'
 import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react'
@@ -97,10 +97,57 @@ export default function JobsPage() {
   )
 }
 
+function formatDuration(startedAt: string | null, completedAt: string | null): string {
+  if (!startedAt) return '--'
+  const start = new Date(startedAt).getTime()
+  const end = completedAt ? new Date(completedAt).getTime() : Date.now()
+  const secs = Math.round((end - start) / 1000)
+  if (secs < 60) return `${secs}s`
+  const mins = Math.floor(secs / 60)
+  const remSecs = secs % 60
+  return `${mins}m ${remSecs}s`
+}
+
 function JobRow({ job, displayStatus, domainName, total, done, allDone, entries, expanded, onToggle }: {
   job: any; displayStatus: string; domainName: string; total: number; done: number; allDone: boolean
   entries: [string, unknown][]; expanded: boolean; onToggle: () => void
 }) {
+  const [selectedVendor, setSelectedVendor] = useState<string | null>(null)
+
+  // Fetch domain results to get logs when expanded
+  const { data: vendorResults } = useQuery({
+    queryKey: ['domain-results', job.domain_id],
+    queryFn: () => domainsApi.results(job.domain_id).then(r => r.data),
+    enabled: expanded,
+  })
+
+  const { data: vendors } = useQuery({
+    queryKey: ['vendors'],
+    queryFn: () => vendorsApi.list().then(r => r.data),
+    staleTime: 60000,
+    enabled: expanded,
+  })
+
+  const vendorLookup: Record<string, any> = {}
+  vendors?.forEach((v: any) => { vendorLookup[v.name] = v })
+
+  // Build logs lookup: vendor_name -> logs
+  const logsMap: Record<string, { logs: string; duration: number; status: string; category?: string; error?: string }> = {}
+  vendorResults?.forEach((r: any) => {
+    const v = vendors?.find((v: any) => v.id === r.vendor_id)
+    if (v) {
+      logsMap[v.name] = {
+        logs: r.raw_response?.logs || r.raw_response?.raw_log || '',
+        duration: r.raw_response?.duration_seconds || 0,
+        status: r.status,
+        category: r.category,
+        error: r.error_message,
+      }
+    }
+  })
+
+  const duration = formatDuration(job.started_at, job.completed_at)
+
   return (
     <>
       <tr className="border-b border-border hover:bg-[hsl(var(--table-row-hover,var(--accent)))] transition-colors cursor-pointer"
@@ -129,27 +176,59 @@ function JobRow({ job, displayStatus, domainName, total, done, allDone, entries,
             <span className="text-[11px] text-muted-foreground">--</span>
           )}
         </td>
-        <td className="px-4 py-2.5 text-[11px] text-muted-foreground">
-          {new Date(job.requested_at).toLocaleString()}
+        <td className="px-4 py-2.5">
+          <div className="text-[11px] text-muted-foreground">{new Date(job.requested_at).toLocaleString()}</div>
+          <div className="text-[10px] text-muted-foreground/50 mt-0.5">Duration: {duration}</div>
         </td>
       </tr>
 
       {expanded && entries.length > 0 && (
         <tr>
           <td colSpan={7} className="px-0 py-0">
-            <div className="bg-[hsl(var(--table-header,var(--secondary)))] border-t border-border px-8 py-3">
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+            <div className="bg-[hsl(var(--table-header,var(--secondary)))] border-t border-border">
+              {/* Vendor tabs */}
+              <div className="flex flex-wrap gap-1 px-4 pt-3 pb-2 border-b border-border">
                 {entries.map(([vendor, status]: any) => (
-                  <div key={vendor} className="flex items-center gap-2 px-3 py-1.5 rounded bg-card border border-border">
-                    <span className="text-xs font-medium flex-1">{vendor}</span>
+                  <button
+                    key={vendor}
+                    onClick={() => setSelectedVendor(prev => prev === vendor ? null : vendor)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                      selectedVendor === vendor
+                        ? 'bg-primary/15 text-primary'
+                        : 'bg-card border border-border hover:bg-accent text-muted-foreground'
+                    }`}
+                  >
+                    <span>{vendor}</span>
                     <StatusBadge status={status} />
-                  </div>
+                    {logsMap[vendor]?.duration > 0 && (
+                      <span className="text-[9px] text-muted-foreground/50">{logsMap[vendor].duration}s</span>
+                    )}
+                  </button>
                 ))}
               </div>
-              <div className="mt-2 flex items-center gap-4 text-[11px] text-muted-foreground">
-                {job.celery_task_id && <span>Task: <code className="font-mono">{job.celery_task_id.slice(0, 12)}...</code></span>}
-                {job.started_at && <span>Started: {new Date(job.started_at).toLocaleString()}</span>}
-              </div>
+
+              {/* Log output */}
+              {selectedVendor && logsMap[selectedVendor] && (
+                <div className="px-4 py-3">
+                  {logsMap[selectedVendor].category && (
+                    <div className="text-xs mb-2">Result: <span className="font-medium text-emerald-400">{logsMap[selectedVendor].category}</span></div>
+                  )}
+                  {logsMap[selectedVendor].error && (
+                    <div className="text-xs text-red-400 mb-2 max-h-20 overflow-y-auto font-mono whitespace-pre-wrap">{logsMap[selectedVendor].error}</div>
+                  )}
+                  <div className="bg-background/80 rounded-md border border-border p-3 max-h-64 overflow-y-auto">
+                    <pre className="text-[11px] font-mono text-muted-foreground whitespace-pre-wrap leading-relaxed">
+                      {logsMap[selectedVendor].logs || 'No logs captured for this vendor.'}
+                    </pre>
+                  </div>
+                </div>
+              )}
+
+              {!selectedVendor && (
+                <div className="px-4 py-4 text-xs text-muted-foreground/50 text-center">
+                  Click a vendor above to view its classifier logs
+                </div>
+              )}
             </div>
           </td>
         </tr>
