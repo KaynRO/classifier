@@ -48,11 +48,9 @@ export default function DomainsPage() {
 
   const bulkCheckMutation = useMutation({
     mutationFn: () => jobsApi.bulkCheck(),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['jobs'] })
-      setScanningAll(false)
-    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['jobs'] }),
     onMutate: () => setScanningAll(true),
+    onSettled: () => setScanningAll(false),
   })
 
   const categoryVendors = vendors?.filter((v: any) => v.vendor_type === 'category' && !HIDDEN_VENDORS.has(v.name)) || []

@@ -24,7 +24,8 @@ async def list_domains(
 ):
     query = select(Domain).where(Domain.is_active == is_active)
     if search:
-        query = query.where(Domain.domain.ilike(f"%{search}%"))
+        escaped = search.replace('%', '\\%').replace('_', '\\_')
+        query = query.where(Domain.domain.ilike(f"%{escaped}%", escape='\\'))
 
     count_q = select(func.count()).select_from(query.subquery())
     total = (await db.execute(count_q)).scalar() or 0
@@ -48,7 +49,9 @@ async def create_domain(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_admin),
 ):
-    existing = await db.execute(select(Domain).where(Domain.domain == data.domain))
+    existing = await db.execute(
+        select(Domain).where(Domain.domain == data.domain, Domain.is_active == True)
+    )
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Domain already exists")
 
