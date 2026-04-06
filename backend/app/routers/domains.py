@@ -1,10 +1,14 @@
+import csv
+import io
+from datetime import datetime
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from app.database import get_db
-from app.models import Domain, CheckResult, CheckHistory, User
+from app.models import Domain, Vendor, CheckResult, CheckHistory, User
 from app.schemas import (
     DomainCreate, DomainUpdate, DomainResponse, CheckResultResponse, PaginatedResponse
 )
@@ -135,4 +139,102 @@ async def get_domain_history(
         items=[CheckResultResponse.model_validate(h) for h in items],
         total=total, page=page, per_page=per_page,
         pages=(total + per_page - 1) // per_page if per_page else 0,
+    )
+
+
+@router.get("/export/csv")
+async def export_domains_csv(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Export all domains with latest vendor results + full check history as CSV."""
+
+    # Get all active domains
+    domains = (await db.execute(
+        select(Domain).where(Domain.is_active == True).order_by(Domain.domain)
+    )).scalars().all()
+
+    # Get all active vendors
+    vendors = (await db.execute(
+        select(Vendor).where(Vendor.is_active == True).order_by(Vendor.vendor_type, Vendor.name)
+    )).scalars().all()
+
+    # Get all results
+    all_results = (await db.execute(
+        select(CheckResult).options(selectinload(CheckResult.vendor))
+    )).scalars().all()
+
+    # Get all history
+    all_history = (await db.execute(
+        select(CheckHistory).order_by(CheckHistory.created_at.desc())
+    )).scalars().all()
+
+    # Build result map: (domain_id, vendor_id) -> result
+    result_map = {}
+    for r in all_results:
+        result_map[(str(r.domain_id), r.vendor_id)] = r
+
+    # Build history map: domain_id -> list of history entries
+    history_map: dict[str, list] = {}
+    for h in all_history:
+        key = str(h.domain_id)
+        if key not in history_map:
+            history_map[key] = []
+        history_map[key].append(h)
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    # --- Sheet 1: Current Status ---
+    writer.writerow(["=== CURRENT STATUS ==="])
+    header = ["Domain", "Desired Category", "Email", "Notes"]
+    for v in vendors:
+        header.extend([f"{v.display_name} - Category", f"{v.display_name} - Reputation", f"{v.display_name} - Status", f"{v.display_name} - Last Check"])
+    writer.writerow(header)
+
+    for d in domains:
+        row = [d.domain, d.desired_category or "", d.email_for_submit or "", d.notes or ""]
+        for v in vendors:
+            r = result_map.get((str(d.id), v.id))
+            if r:
+                row.extend([
+                    r.category or "",
+                    r.reputation or "",
+                    r.status or "",
+                    r.completed_at.strftime("%Y-%m-%d %H:%M") if r.completed_at else "",
+                ])
+            else:
+                row.extend(["", "", "Not Checked", ""])
+        writer.writerow(row)
+
+    writer.writerow([])
+    writer.writerow([])
+
+    # --- Sheet 2: Check History ---
+    writer.writerow(["=== CHECK HISTORY ==="])
+    writer.writerow(["Domain", "Vendor", "Action", "Status", "Category", "Reputation", "Error", "Date"])
+
+    vendor_lookup = {v.id: v.display_name for v in vendors}
+    domain_lookup = {str(d.id): d.domain for d in domains}
+
+    for h in all_history:
+        domain_name = domain_lookup.get(str(h.domain_id), "Unknown")
+        vendor_name = vendor_lookup.get(h.vendor_id, "Unknown")
+        writer.writerow([
+            domain_name,
+            vendor_name,
+            h.action_type,
+            h.status,
+            h.category or "",
+            h.reputation or "",
+            (h.error_message or "")[:200],
+            h.created_at.strftime("%Y-%m-%d %H:%M:%S") if h.created_at else "",
+        ])
+
+    output.seek(0)
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M")
+    return StreamingResponse(
+        output,
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=classifier_export_{timestamp}.csv"},
     )
