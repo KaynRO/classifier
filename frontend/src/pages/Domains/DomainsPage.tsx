@@ -334,12 +334,29 @@ function CategorizationRow({ domain, categoryVendors, expanded, onToggle, onDele
     refetchInterval: 4000,
   })
 
+  const allVendorNames = categoryVendors.map((v: any) => v.name)
+
   const startBusy = (key: string) => setBusyVendors(prev => new Set(prev).add(key))
+  const startBusyAll = (prefix: string) => setBusyVendors(prev => {
+    const s = new Set(prev)
+    allVendorNames.forEach(n => s.add(`${prefix}-${n}`))
+    return s
+  })
   const clearBusy = (key: string) => {
     setTimeout(() => {
       setBusyVendors(prev => { const s = new Set(prev); s.delete(key); return s })
       queryClient.invalidateQueries({ queryKey: ['domain-results', domain.id] })
     }, 3000)
+  }
+  const clearBusyAll = (prefix: string) => {
+    setTimeout(() => {
+      setBusyVendors(prev => {
+        const s = new Set(prev)
+        allVendorNames.forEach(n => s.delete(`${prefix}-${n}`))
+        return s
+      })
+      queryClient.invalidateQueries({ queryKey: ['domain-results', domain.id] })
+    }, 5000)
   }
 
   const checkVendorMutation = useMutation({
@@ -348,11 +365,13 @@ function CategorizationRow({ domain, categoryVendors, expanded, onToggle, onDele
       vendor: vendor === '__all__' ? undefined : vendor,
     }),
     onMutate: (vendor) => {
-      if (vendor !== '__all__') { startBusy(`check-${vendor}`); toast(`Checking ${vendor}...`, { icon: '🔄' }) }
+      if (vendor === '__all__') { startBusyAll('check'); toast('Checking all vendors...', { icon: '🔄' }) }
+      else { startBusy(`check-${vendor}`); toast(`Checking ${vendor}...`, { icon: '🔄' }) }
     },
     onError: (_, vendor) => toast.error(`Check failed${vendor !== '__all__' ? ` for ${vendor}` : ''}`),
     onSettled: (_, __, vendor) => {
-      if (vendor !== '__all__') clearBusy(`check-${vendor}`)
+      if (vendor === '__all__') clearBusyAll('check')
+      else clearBusy(`check-${vendor}`)
       queryClient.invalidateQueries({ queryKey: ['domain-results', domain.id] })
     },
   })
@@ -363,11 +382,13 @@ function CategorizationRow({ domain, categoryVendors, expanded, onToggle, onDele
       vendor: vendor === '__all__' ? undefined : vendor,
     }),
     onMutate: (vendor) => {
-      if (vendor !== '__all__') { startBusy(`submit-${vendor}`); toast(`Submitting to ${vendor}...`, { icon: '📤' }) }
+      if (vendor === '__all__') { startBusyAll('submit'); toast('Submitting to all vendors...', { icon: '📤' }) }
+      else { startBusy(`submit-${vendor}`); toast(`Submitting to ${vendor}...`, { icon: '📤' }) }
     },
     onError: (_, vendor) => toast.error(`Submit failed${vendor !== '__all__' ? ` for ${vendor}` : ''}`),
     onSettled: (_, __, vendor) => {
-      if (vendor !== '__all__') clearBusy(`submit-${vendor}`)
+      if (vendor === '__all__') clearBusyAll('submit')
+      else clearBusy(`submit-${vendor}`)
       queryClient.invalidateQueries({ queryKey: ['domain-results', domain.id] })
     },
   })
@@ -408,6 +429,10 @@ function CategorizationRow({ domain, categoryVendors, expanded, onToggle, onDele
                 ) : (
                   <StatusBadge status={r?.status} />
                 )}
+                {/* Timestamp */}
+                {r?.completed_at && !isCheckBusy && (
+                  <span className="text-[9px] text-muted-foreground/50">{timeAgo(r.completed_at)}</span>
+                )}
                 {/* Buttons */}
                 <div className="flex items-center gap-1 mt-0.5">
                   <button
@@ -445,13 +470,13 @@ function CategorizationRow({ domain, categoryVendors, expanded, onToggle, onDele
         <td className="px-3 py-2 text-center">
           <div className="flex flex-col items-center gap-1">
             <button
-              onClick={() => { checkVendorMutation.mutate('__all__'); toast('Checking all vendors...', { icon: '🔄' }) }}
+              onClick={() => checkVendorMutation.mutate('__all__')}
               className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors" title="Check All Vendors">
               <PlayCircle size={15} />
             </button>
             {domain.desired_category && (
               <button
-                onClick={() => { submitVendorMutation.mutate('__all__'); toast('Submitting to all vendors...', { icon: '📤' }) }}
+                onClick={() => submitVendorMutation.mutate('__all__')}
                 className="p-1.5 rounded hover:bg-primary/10 text-primary/60 hover:text-primary transition-colors" title="Submit All Vendors">
                 <SendHorizonal size={15} />
               </button>
