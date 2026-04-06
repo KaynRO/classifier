@@ -1,12 +1,7 @@
-import traceback
+import traceback, time
 from typing import Optional
 from helpers.utils import *
 from helpers.logger import *
-
-
-def log_exception(logger: Logger) -> None:
-    trace = traceback.format_exc()
-    logger.error(trace)
 
 
 class Intelixsophos:
@@ -14,43 +9,107 @@ class Intelixsophos:
         self.logger = Logger(__name__)
         self.url = "https://intelix.sophos.com/url"
 
-        # Element selectors for the check flow
-        self.url_input = "/html/body/div[1]/div/div[4]/div/div/div/div/div[1]/div[2]/div[2]/div/div[2]/div/form/div/div/span/div/input"
-        self.submit_btn = "/html/body/div[1]/div/div[4]/div/div/div/div/div[1]/div[2]/div[2]/div/div[4]/button"
-        self.agree_btn = "/html/body/div[2]/div[2]/button[1]"
-        self.cat_res = "/html/body/div[3]/div/div[2]/div[2]/div/div[1]/div/div[2]/div/div[1]"
-        self.sec_res = "/html/body/div[3]/div/div[2]/div[2]/div/div[1]/div/div[1]/div/div[1]"
-        self.analysis_res = "/html/body/div[3]/div/div[2]/div[2]/div/div[2]/div/div[1]/div/div[1]/div"
-        self.risk_res = "/html/body/div[3]/div/div[2]/div[2]/div/div[2]/div/div[2]/div/div[2]"
-
 
     def check(self, driver, target_url: str, return_reputation_only: bool = False) -> Optional[str]:
         self.logger.info(f" Targeting intelixsophos ".center(60, "="))
         self.logger.info(f"[*] Using vendor endpoint at: {self.url}")
 
         load_url_and_wait_until_it_is_fully_loaded(driver, self.url)
+        time.sleep(2)
 
-        # Enter URL and submit (CAPTCHA not supported for this vendor)
-        wait_and_input_on_element(driver, self.url_input, target_url)
-        self.logger.warning("[!] Captcha solver not available for this module")
-        wait_and_click_on_element(driver, self.submit_btn)
-        wait_and_click_on_element(driver, self.agree_btn)
-
-        # Wait for results to load
+        # Handle cookie consent banner
         try:
-            wait_for_selector(driver, self.cat_res, timeout=10000)
+            cookie_btns = [
+                "button:has-text('Accept All')",
+                "button:has-text('Accept All Cookies')",
+                "button#onetrust-accept-btn-handler",
+            ]
+            for sel in cookie_btns:
+                if count_elements(driver, sel) > 0:
+                    wait_and_click_on_element(driver, sel)
+                    self.logger.info("[*] Accepted cookie consent")
+                    time.sleep(1)
+                    break
         except Exception:
-            self.logger.warning("[!] Results did not appear or timed out")
+            self.logger.debug("[*] No cookie consent banner found")
 
-        # Extract all result fields
-        cat = wait_for_element_and_fetch_value(driver, self.cat_res)
-        sec = wait_for_element_and_fetch_value(driver, self.sec_res)
-        analysis = wait_for_element_and_fetch_value(driver, self.analysis_res)
-        risk = wait_for_element_and_fetch_value(driver, self.risk_res)
+        # Find and fill the URL input
+        input_selectors = [
+            "input[placeholder*='URL']",
+            "input[placeholder*='url']",
+            "input[type='text']",
+            "input[type='url']",
+        ]
+        input_filled = False
+        for sel in input_selectors:
+            try:
+                if count_elements(driver, sel) > 0:
+                    wait_and_input_on_element(driver, sel, target_url)
+                    input_filled = True
+                    self.logger.info(f"[*] Entered URL using selector: {sel}")
+                    break
+            except Exception:
+                continue
 
-        self.logger.success(f"[+] Category: {cat}")
-        self.logger.success(f"[+] Security: {sec}")
-        self.logger.success(f"[+] Overall Analysis: {analysis}")
-        self.logger.success(f"[+] Risk level: {risk}")
+        if not input_filled:
+            raise Exception("Could not find URL input field")
+
+        # Click Analyze/Submit button
+        submit_selectors = [
+            "button:has-text('Analyze')",
+            "button:has-text('Submit')",
+            "button[type='submit']",
+        ]
+        submitted = False
+        for sel in submit_selectors:
+            try:
+                if count_elements(driver, sel) > 0:
+                    wait_and_click_on_element(driver, sel)
+                    submitted = True
+                    self.logger.info(f"[*] Clicked submit: {sel}")
+                    break
+            except Exception:
+                continue
+
+        if not submitted:
+            raise Exception("Could not find submit button")
+
+        # Wait for results
+        time.sleep(8)
+
+        body_text = get_text(driver, "body")
+
+        # Extract category and security info from page text
+        cat = self.extract_field(body_text, ["category", "categorization"])
+        sec = self.extract_field(body_text, ["security", "risk level", "risk"])
+        analysis = self.extract_field(body_text, ["overall analysis", "analysis"])
+
+        if cat:
+            self.logger.success(f"[+] Category: {cat}")
+        else:
+            cat = "Not Found"
+            self.logger.warning("[-] Could not extract category")
+
+        if sec:
+            self.logger.success(f"[+] Security: {sec}")
+        if analysis:
+            self.logger.success(f"[+] Analysis: {analysis}")
 
         return cat
+
+
+    def extract_field(self, body_text: str, labels: list) -> Optional[str]:
+        lines = body_text.split("\n")
+        for i, line in enumerate(lines):
+            stripped = line.strip().lower()
+            for label in labels:
+                if label in stripped:
+                    # Value might be on same line after colon
+                    if ":" in line:
+                        val = line.split(":", 1)[1].strip()
+                        if val:
+                            return val
+                    # Or on the next line
+                    if i + 1 < len(lines) and lines[i + 1].strip():
+                        return lines[i + 1].strip()
+        return None

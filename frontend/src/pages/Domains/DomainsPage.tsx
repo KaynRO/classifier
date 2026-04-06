@@ -147,7 +147,7 @@ export default function DomainsPage() {
           <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Web Proxy Categorization</h3>
         </div>
         <div className="overflow-x-auto">
-          <table className="text-sm" style={{ minWidth: `${220 + 150 + categoryVendors.length * 195 + 50}px` }}>
+          <table className="text-sm" style={{ minWidth: `${240 + categoryVendors.length * 195 + 80}px` }}>
             <thead>
               <VendorHeaders categoryVendors={categoryVendors} domains={data?.items || []} />
             </thead>
@@ -213,8 +213,7 @@ function VendorHeaders({ categoryVendors, domains }: { categoryVendors: any[]; d
 
   return (
     <tr className="border-b border-border text-[11px] uppercase tracking-wider text-muted-foreground">
-      <th className="px-5 py-2.5 text-left font-medium w-[220px] sticky left-0 bg-card z-10">Domain</th>
-      <th className="px-4 py-2.5 text-left font-medium w-[150px]">Desired Category</th>
+      <th className="px-5 py-2.5 text-left font-medium w-[240px] sticky left-0 bg-card z-10">Domain</th>
       {categoryVendors.map((v: any) => (
         <th key={v.id} className="px-4 py-2.5 text-center font-medium w-[195px]">{v.display_name}</th>
       ))}
@@ -277,20 +276,20 @@ function SafetyRow({ domain, reputationVendors, onDelete }: { domain: any; reput
         const isBusy = busyVendors.has(v.name) || r?.status === 'running' || r?.status === 'pending'
         return (
           <td key={v.id} className="px-4 py-2.5">
-            <div className="flex items-start gap-3">
-              <div className="flex flex-col min-w-[70px]">
+            <div className="flex items-center gap-2.5">
+              <div className="flex flex-col min-w-[65px]">
                 <StatusBadge status={r?.status === 'success' ? 'clean' : r?.status} loading={isBusy} />
                 {r?.completed_at && !isBusy && (
-                  <span className="text-[9px] text-muted-foreground/60 mt-1">{timeAgo(r.completed_at)}</span>
+                  <span className="text-[9px] text-muted-foreground/50 mt-0.5">{timeAgo(r.completed_at)}</span>
                 )}
               </div>
               <button
                 onClick={() => checkMutation.mutate(v.name)}
                 disabled={isBusy}
-                className={`mt-px px-2.5 py-1 rounded text-[11px] font-medium border transition-all duration-200 min-h-[28px] ${
+                className={`px-3 py-1 rounded-md text-[11px] font-medium transition-all duration-200 ${
                   isBusy
-                    ? 'border-border/50 text-muted-foreground/30 cursor-not-allowed bg-muted/30'
-                    : 'border-border hover:bg-accent hover:text-accent-foreground'
+                    ? 'bg-muted/40 text-muted-foreground/30 cursor-not-allowed'
+                    : 'bg-secondary hover:bg-accent text-secondary-foreground hover:text-accent-foreground'
                 }`}
               >
                 {isBusy ? <Loader2 size={10} className="animate-spin" /> : 'Verify'}
@@ -300,9 +299,9 @@ function SafetyRow({ domain, reputationVendors, onDelete }: { domain: any; reput
         )
       })}
       <td className="px-3 py-2.5">
-        <div className="flex items-start pt-px">
+        <div className="flex items-center">
           <button onClick={onDelete}
-            className="px-2.5 py-1 rounded text-[11px] font-medium border border-transparent min-h-[28px] hover:bg-destructive/15 text-muted-foreground/40 hover:text-destructive transition-colors" title="Delete">
+            className="px-3 py-1 rounded-md text-[11px] font-medium bg-secondary hover:bg-destructive/15 text-muted-foreground/50 hover:text-destructive transition-all" title="Delete">
             <Trash2 size={13} />
           </button>
         </div>
@@ -395,14 +394,16 @@ function CategorizationRow({ domain, categoryVendors, expanded, onToggle, onDele
             <button onClick={onToggle} className="text-muted-foreground hover:text-foreground transition-colors">
               {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
             </button>
-            <span className="font-medium text-primary/90 dark:text-[hsl(265,50%,72%)]">{domain.domain}</span>
+            <div>
+              <span className="font-medium text-primary/90 dark:text-[hsl(265,50%,72%)]">{domain.domain}</span>
+              <div className="mt-0.5">
+                {domain.desired_category
+                  ? <span className="px-1.5 py-px rounded text-[10px] font-medium bg-primary/10 text-primary/70 dark:text-[hsl(265,40%,65%)]">{domain.desired_category}</span>
+                  : <span className="text-[10px] text-muted-foreground/40 italic">No category set</span>
+                }
+              </div>
+            </div>
           </div>
-        </td>
-        <td className="px-4 py-2.5">
-          {domain.desired_category
-            ? <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-primary/15 text-primary dark:text-[hsl(265,50%,72%)]">{domain.desired_category}</span>
-            : <span className="text-[11px] text-muted-foreground/50 italic">Not Set</span>
-          }
         </td>
         {categoryVendors.map((v: any) => {
           const r = resultMap[v.id]
@@ -429,10 +430,10 @@ function CategorizationRow({ domain, categoryVendors, expanded, onToggle, onDele
                   <button
                     onClick={() => checkVendorMutation.mutate(v.name)}
                     disabled={isCheckBusy}
-                    className={`px-2.5 py-1 rounded text-[11px] min-h-[28px] font-medium border transition-all duration-200 ${
+                    className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all duration-200 ${
                       isCheckBusy
-                        ? 'border-border/40 text-muted-foreground/30 cursor-not-allowed bg-muted/20'
-                        : 'border-border hover:bg-accent hover:text-accent-foreground'
+                        ? 'bg-muted/40 text-muted-foreground/30 cursor-not-allowed'
+                        : 'bg-secondary hover:bg-accent text-secondary-foreground'
                     }`}
                   >
                     {isCheckBusy ? <Loader2 size={9} className="animate-spin" /> : 'Check'}
@@ -442,12 +443,12 @@ function CategorizationRow({ domain, categoryVendors, expanded, onToggle, onDele
                       onClick={() => submitVendorMutation.mutate(v.name)}
                       disabled={isSubmitBusy || isCheckBusy || !domain.desired_category}
                       title={!domain.desired_category ? 'Set desired category first' : `Submit ${domain.desired_category} to ${v.display_name}`}
-                      className={`px-2.5 py-1 rounded text-[11px] min-h-[28px] font-medium border transition-all duration-200 ${
+                      className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all duration-200 ${
                         isSubmitBusy || isCheckBusy
-                          ? 'border-primary/20 text-primary/30 cursor-not-allowed bg-primary/5'
+                          ? 'bg-primary/10 text-primary/30 cursor-not-allowed'
                           : !domain.desired_category
-                            ? 'border-border/30 text-muted-foreground/30 cursor-not-allowed'
-                            : 'border-primary/30 text-primary hover:bg-primary/10'
+                            ? 'bg-muted/30 text-muted-foreground/30 cursor-not-allowed'
+                            : 'bg-primary/15 text-primary hover:bg-primary/25'
                       }`}
                     >
                       {isSubmitBusy ? <Loader2 size={9} className="animate-spin" /> : 'Submit'}
@@ -482,7 +483,7 @@ function CategorizationRow({ domain, categoryVendors, expanded, onToggle, onDele
 
       {expanded && (
         <tr>
-          <td colSpan={categoryVendors.length + 3} className="px-0 py-0">
+          <td colSpan={categoryVendors.length + 2} className="px-0 py-0">
             <DomainConfigPanel domain={domain} />
           </td>
         </tr>
