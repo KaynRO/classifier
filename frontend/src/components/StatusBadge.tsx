@@ -14,9 +14,18 @@ const styles: Record<string, string> = {
   cancelled: 'bg-neutral-500/20 text-neutral-400 border-neutral-500/30',
 }
 
+// Standardized Title Case labels
 const labels: Record<string, string> = {
-  success: 'clean',
-  completed: 'completed',
+  clean: 'Clean',
+  success: 'Clean',
+  completed: 'Completed',
+  failed: 'Failed',
+  error: 'Error',
+  running: 'Running',
+  pending: 'Pending',
+  submitted: 'Submitted',
+  uncategorized: 'Uncategorized',
+  cancelled: 'Cancelled',
 }
 
 export default function StatusBadge({ status, loading }: { status: string | null | undefined; loading?: boolean }) {
@@ -24,12 +33,12 @@ export default function StatusBadge({ status, loading }: { status: string | null
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-sky-500/20 text-sky-400 border border-sky-500/30">
         <Loader2 size={10} className="animate-spin" />
-        checking
+        Checking
       </span>
     )
   }
   if (!status) return <span className="text-[11px] text-muted-foreground/50">--</span>
-  const label = labels[status] || status
+  const label = labels[status] || status.charAt(0).toUpperCase() + status.slice(1)
   return (
     <span className={cn(
       'inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium border',

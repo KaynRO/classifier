@@ -14,7 +14,7 @@ router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
 
 @router.get("/summary", response_model=DashboardSummary)
 async def get_summary(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
-    total = (await db.execute(select(func.count(Domain.id)))).scalar() or 0
+    total = (await db.execute(select(func.count(Domain.id)).where(Domain.is_active == True))).scalar() or 0
     active = (await db.execute(select(func.count(Domain.id)).where(Domain.is_active == True))).scalar() or 0
     vendors = (await db.execute(select(func.count(Vendor.id)).where(Vendor.is_active == True))).scalar() or 0
     pending = (await db.execute(
