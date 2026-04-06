@@ -18,24 +18,73 @@ class FortiGuard:
         try:
             clean_domain = target_url.replace("https://", "").replace("http://", "").strip("/")
 
-            # Use query parameter approach to bypass CAPTCHA form
-            query_url = f"{self.url}?q={clean_domain}"
-            self.logger.info(f"[*] Loading: {query_url}")
-
-            driver.uc_open_with_reconnect(query_url, reconnect_time=5)
+            # Load the main webfilter page (not ?q= which gets WAF blocked)
+            load_url_and_wait_until_it_is_fully_loaded(driver, self.url)
             time.sleep(3)
 
             body_text = get_text(driver, "body")
 
-            # Check if we're blocked by WAF
-            if "Web Page Blocked" in body_text or "Attack ID" in body_text:
-                self.logger.warning("[!] Blocked by FortiGuard WAF — trying form-based approach")
-                category = self.check_via_form(driver, clean_domain)
-            else:
-                category = self.extract_category(body_text)
+            # Check for WAF block
+            if "access" in body_text.lower() and "denied" in body_text.lower():
+                self.logger.warning("[!] FortiGuard denied access — trying UC reconnect")
+                driver.uc_open_with_reconnect(self.url, reconnect_time=5)
+                time.sleep(3)
+                body_text = get_text(driver, "body")
+                if "denied" in body_text.lower():
+                    self.logger.error("[-] FortiGuard still blocking access")
+                    return "Blocked By WAF"
+
+            # Enter URL in the search field
+            url_input = "input[name='url']"
+            try:
+                wait_for_selector(driver, url_input, timeout=5000)
+                clear_element(driver, url_input)
+                wait_and_input_on_element(driver, url_input, clean_domain)
+                self.logger.info(f"[*] Entered domain: {clean_domain}")
+            except Exception:
+                self.logger.error("[-] Could not find URL input field")
+                return "Not Found"
+
+            time.sleep(1)
+
+            # Solve ALTCHA captcha — click the checkbox
+            self.logger.info("[*] Looking for ALTCHA captcha checkbox...")
+            try:
+                altcha_cb = driver.find_elements("css selector", "input[id*='altcha_checkbox']")
+                if altcha_cb:
+                    driver.execute_script("arguments[0].click()", altcha_cb[0])
+                    self.logger.info("[*] Clicked ALTCHA checkbox")
+                    # Wait for proof-of-work to complete
+                    time.sleep(3)
+
+                    # Verify checkbox is checked
+                    is_checked = altcha_cb[0].is_selected()
+                    self.logger.info(f"[*] ALTCHA checked: {is_checked}")
+                else:
+                    self.logger.debug("[*] No ALTCHA checkbox found, proceeding anyway")
+            except Exception as e:
+                self.logger.warning(f"[!] ALTCHA handling failed: {e}")
+
+            # Click submit via JS (two overlapping buttons with same ID — normal click gets intercepted)
+            try:
+                driver.execute_script("""
+                    var btns = document.querySelectorAll('#webfilter_search_form_submit');
+                    if (btns.length > 0) btns[btns.length - 1].click();
+                """)
+                self.logger.info("[*] Clicked submit via JS")
+            except Exception:
+                press_key(driver, url_input, "Enter")
+                self.logger.info("[*] Pressed Enter to submit")
+
+            # Wait for results
+            self.logger.info("[*] Waiting for results...")
+            time.sleep(5)
+
+            body_text = get_text(driver, "body")
+            category = self.extract_category(body_text)
 
             if not return_reputation_only:
-                self.logger.success(f"[+] Category: {category.upper()}")
+                self.logger.success(f"[+] Category: {category}")
             else:
                 category = None
 
@@ -47,82 +96,31 @@ class FortiGuard:
             raise e
 
 
-    def check_via_form(self, driver, domain: str) -> str:
-        try:
-            load_url_and_wait_until_it_is_fully_loaded(driver, self.url)
-            time.sleep(3)
-
-            body_text = get_text(driver, "body")
-            if "Web Page Blocked" in body_text or "Attack ID" in body_text:
-                self.logger.warning("[!] FortiGuard WAF is blocking access from this IP")
-                return "BLOCKED BY WAF"
-
-            # Try to find and interact with the form
-            input_selectors = [
-                "input#query",
-                "input[name='q']",
-                "input[name='url']",
-                "input[type='text']",
-                "input[placeholder*='URL']",
-                "input[placeholder*='url']"
-            ]
-
-            for selector in input_selectors:
-                try:
-                    if count_elements(driver, selector) > 0:
-                        wait_and_input_on_element(driver, selector, domain)
-
-                        submit_selectors = [
-                            "button[type='submit']",
-                            "input[type='submit']",
-                            "button:has-text('Search')",
-                            "button:has-text('Lookup')"
-                        ]
-                        for btn in submit_selectors:
-                            try:
-                                if count_elements(driver, btn) > 0:
-                                    wait_and_click_on_element(driver, btn)
-                                    break
-                            except Exception:
-                                continue
-                        else:
-                            press_key(driver, selector, "Enter")
-
-                        time.sleep(5)
-                        body_text = get_text(driver, "body")
-                        return self.extract_category(body_text)
-                except Exception:
-                    continue
-
-            return "NOT FOUND"
-
-        except Exception as e:
-            self.logger.debug(f"[*] Form-based approach failed: {e}")
-            return "NOT FOUND"
-
-
     def extract_category(self, body_text: str) -> str:
-        category = "NOT FOUND"
+        category = "Not Found"
 
         try:
             lines = body_text.split("\n")
 
             for i, line in enumerate(lines):
-                line_stripped = line.strip()
+                stripped = line.strip()
+                lower = stripped.lower()
 
-                # Look for "Category:" label followed by category name
-                if "category:" in line_stripped.lower():
-                    parts = line_stripped.split(":", 1)
+                # Look for "Category:" label
+                if "category:" in lower:
+                    parts = stripped.split(":", 1)
                     if len(parts) > 1 and parts[1].strip():
-                        category = parts[1].strip()
-                        break
+                        val = parts[1].strip()
+                        if val.lower() not in ["", "category"]:
+                            category = val
+                            break
                     if i + 1 < len(lines) and lines[i + 1].strip():
                         category = lines[i + 1].strip()
                         break
 
-                # FortiGuard often shows category after "Web Rating:" or similar
-                if "web rating" in line_stripped.lower() or "web filter" in line_stripped.lower():
-                    parts = line_stripped.split(":", 1)
+                # FortiGuard result format sometimes shows category directly
+                if "web rating" in lower or "web filter" in lower:
+                    parts = stripped.split(":", 1)
                     if len(parts) > 1 and parts[1].strip():
                         category = parts[1].strip()
                         break
