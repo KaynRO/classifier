@@ -50,7 +50,7 @@ def _get_vendor_class(vendor_name: str):
         "watchguard": ("modules.watchguard", "Watchguard"),
         "talosintelligence": ("modules.talosintelligence", "TalosIntelligence"),
         "lightspeedsystems": ("modules.lightspeedsystems", "LightspeedSystems"),
-        "intelixsophos": ("modules.intelixsophos", "IntelixSophos"),
+        "intelixsophos": ("modules.intelixsophos", "Intelixsophos"),
         "fortiguard": ("modules.fortiguard", "FortiGuard"),
         "checkpoint": ("modules.checkpoint", "CheckPoint"),
         "virustotal": ("modules.virustotal", "VirusTotal"),
@@ -84,6 +84,9 @@ def run_vendor_operation(
     Returns dict with category, reputation, and/or raw data.
     """
     _setup_credentials()
+
+    # Ensure logs directory exists (Logger.__init__ calls os.makedirs without exist_ok)
+    os.makedirs("logs", exist_ok=True)
 
     VendorClass = _get_vendor_class(vendor_name)
     vendor = VendorClass()

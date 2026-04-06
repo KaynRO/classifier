@@ -14,8 +14,8 @@ celery_app.conf.update(
     worker_concurrency=2,
     worker_prefetch_multiplier=1,
     task_acks_late=True,
-    task_time_limit=300,
-    task_soft_time_limit=240,
+    task_time_limit=600,
+    task_soft_time_limit=540,
     task_default_rate_limit="6/m",
     task_routes={
         "app.tasks.vendor_tasks.*": {"queue": "classifier"},
