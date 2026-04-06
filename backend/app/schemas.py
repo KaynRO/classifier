@@ -10,7 +10,7 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 class UserCreate(BaseModel):
     username: str = Field(min_length=3, max_length=100)
     email: str = Field(min_length=5, max_length=255)
-    password: str = Field(min_length=6)
+    password: str = Field(min_length=8)
 
 class UserLogin(BaseModel):
     username: str

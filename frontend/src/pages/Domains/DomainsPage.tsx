@@ -4,9 +4,8 @@ import { domainsApi, jobsApi, vendorsApi } from '@/api/client'
 import StatusBadge from '@/components/StatusBadge'
 import CategoryBadge from '@/components/CategoryBadge'
 import { Plus, Search, Trash2, ChevronDown, ChevronRight, Save, X, Loader2, ScanSearch } from 'lucide-react'
-
-// Vendors to hide from the dashboard
-const HIDDEN_VENDORS = new Set(['lightspeedsystems'])
+import toast from 'react-hot-toast'
+import { CATEGORIES, HIDDEN_VENDORS } from '@/lib/constants'
 
 function timeAgo(dateStr: string | null | undefined): string {
   if (!dateStr) return ''
@@ -43,12 +42,14 @@ export default function DomainsPage() {
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => domainsApi.delete(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['domains'] }),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['domains'] }); toast.success('Domain removed') },
+    onError: () => toast.error('Failed to delete domain'),
   })
 
   const bulkCheckMutation = useMutation({
     mutationFn: () => jobsApi.bulkCheck(),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['jobs'] }),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['jobs'] }); toast.success('Scan started for all domains') },
+    onError: () => toast.error('Failed to start bulk scan'),
     onMutate: () => setScanningAll(true),
     onSettled: () => setScanningAll(false),
   })
@@ -177,10 +178,19 @@ export default function DomainsPage() {
 }
 
 function LoadingRow({ cols }: { cols: number }) {
-  return <tr><td colSpan={cols} className="px-5 py-8 text-center text-muted-foreground text-sm"><Loader2 size={16} className="animate-spin inline mr-2" />Loading...</td></tr>
+  return <tr><td colSpan={cols} className="px-5 py-10 text-center text-muted-foreground text-sm"><Loader2 size={18} className="animate-spin inline mr-2 text-primary/50" />Loading domains...</td></tr>
 }
 function EmptyRow({ cols, text }: { cols: number; text: string }) {
-  return <tr><td colSpan={cols} className="px-5 py-8 text-center text-muted-foreground text-sm">{text}</td></tr>
+  return (
+    <tr><td colSpan={cols} className="px-5 py-12 text-center">
+      <div className="flex flex-col items-center gap-2">
+        <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
+          <Search size={18} className="text-muted-foreground/50" />
+        </div>
+        <p className="text-sm text-muted-foreground">{text}</p>
+      </div>
+    </td></tr>
+  )
 }
 
 
@@ -197,9 +207,9 @@ function SafetyRow({ domain, reputationVendors, onDelete }: { domain: any; reput
 
   const checkMutation = useMutation({
     mutationFn: (vendor: string) => jobsApi.reputation({ domain_id: domain.id }),
-    onMutate: (vendor) => setBusyVendors(prev => new Set(prev).add(vendor)),
+    onMutate: (vendor) => { setBusyVendors(prev => new Set(prev).add(vendor)); toast('Verifying...', { icon: '🔍' }) },
+    onError: () => toast.error('Verification failed'),
     onSettled: (_, __, vendor) => {
-      // Don't clear immediately — let the refetch show the running state, clear after delay
       setTimeout(() => {
         setBusyVendors(prev => { const s = new Set(prev); s.delete(vendor); return s })
         queryClient.invalidateQueries({ queryKey: ['domain-results', domain.id] })
@@ -220,23 +230,23 @@ function SafetyRow({ domain, reputationVendors, onDelete }: { domain: any; reput
         const isBusy = busyVendors.has(v.name) || r?.status === 'running' || r?.status === 'pending'
         return (
           <td key={v.id} className="px-4 py-2.5">
-            <div className="flex items-center gap-2">
-              <div className="flex flex-col">
+            <div className="flex items-start gap-3">
+              <div className="flex flex-col min-w-[70px]">
                 <StatusBadge status={r?.status === 'success' ? 'clean' : r?.status} loading={isBusy} />
                 {r?.completed_at && !isBusy && (
-                  <span className="text-[9px] text-muted-foreground/60 mt-0.5">{timeAgo(r.completed_at)}</span>
+                  <span className="text-[9px] text-muted-foreground/60 mt-1">{timeAgo(r.completed_at)}</span>
                 )}
               </div>
               <button
                 onClick={() => checkMutation.mutate(v.name)}
                 disabled={isBusy}
-                className={`px-2 py-1 rounded text-[11px] font-medium border transition-all duration-200 ${
+                className={`mt-px px-2.5 py-1 rounded text-[11px] font-medium border transition-all duration-200 min-h-[28px] ${
                   isBusy
                     ? 'border-border/50 text-muted-foreground/30 cursor-not-allowed bg-muted/30'
                     : 'border-border hover:bg-accent hover:text-accent-foreground'
                 }`}
               >
-                {isBusy ? <Loader2 size={10} className="animate-spin" /> : 'verify'}
+                {isBusy ? <Loader2 size={10} className="animate-spin" /> : 'Verify'}
               </button>
             </div>
           </td>
@@ -276,13 +286,15 @@ function CategorizationRow({ domain, categoryVendors, expanded, onToggle, onDele
 
   const checkVendorMutation = useMutation({
     mutationFn: (vendor: string) => jobsApi.check({ domain_id: domain.id, vendor }),
-    onMutate: (vendor) => startBusy(`check-${vendor}`),
+    onMutate: (vendor) => { startBusy(`check-${vendor}`); toast(`Checking ${vendor}...`, { icon: '🔄' }) },
+    onError: (_, vendor) => toast.error(`Check failed for ${vendor}`),
     onSettled: (_, __, vendor) => clearBusy(`check-${vendor}`),
   })
 
   const submitVendorMutation = useMutation({
     mutationFn: (vendor: string) => jobsApi.submit({ domain_id: domain.id, vendor }),
-    onMutate: (vendor) => startBusy(`submit-${vendor}`),
+    onMutate: (vendor) => { startBusy(`submit-${vendor}`); toast(`Submitting to ${vendor}...`, { icon: '📤' }) },
+    onError: (_, vendor) => toast.error(`Submit failed for ${vendor}`),
     onSettled: (_, __, vendor) => clearBusy(`submit-${vendor}`),
   })
 
@@ -303,7 +315,7 @@ function CategorizationRow({ domain, categoryVendors, expanded, onToggle, onDele
         <td className="px-4 py-2.5">
           {domain.desired_category
             ? <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-primary/15 text-primary dark:text-[hsl(265,50%,72%)]">{domain.desired_category}</span>
-            : <span className="text-[11px] text-muted-foreground/50 italic">not set</span>
+            : <span className="text-[11px] text-muted-foreground/50 italic">Not Set</span>
           }
         </td>
         {categoryVendors.map((v: any) => {
@@ -337,7 +349,7 @@ function CategorizationRow({ domain, categoryVendors, expanded, onToggle, onDele
                         : 'border-border hover:bg-accent hover:text-accent-foreground'
                     }`}
                   >
-                    {isCheckBusy ? <Loader2 size={9} className="animate-spin" /> : 'check'}
+                    {isCheckBusy ? <Loader2 size={9} className="animate-spin" /> : 'Check'}
                   </button>
                   {v.supports_submit && domain.desired_category && (
                     <button
@@ -349,7 +361,7 @@ function CategorizationRow({ domain, categoryVendors, expanded, onToggle, onDele
                           : 'border-primary/30 text-primary hover:bg-primary/10'
                       }`}
                     >
-                      {isSubmitBusy ? <Loader2 size={9} className="animate-spin" /> : 'submit'}
+                      {isSubmitBusy ? <Loader2 size={9} className="animate-spin" /> : 'Submit'}
                     </button>
                   )}
                 </div>
@@ -386,7 +398,7 @@ function DomainConfigPanel({ domain }: { domain: any }) {
   const [customText, setCustomText] = useState(domain.custom_text || '')
   const [dirty, setDirty] = useState(false)
 
-  const categories = ['Business', 'Education', 'Finance', 'Health', 'News', 'Internet']
+  const categories = CATEGORIES
 
   const saveMutation = useMutation({
     mutationFn: () => domainsApi.update(domain.id, {
@@ -398,6 +410,7 @@ function DomainConfigPanel({ domain }: { domain: any }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['domains'] })
       setDirty(false)
+      toast.success('Configuration saved')
     },
   })
 
@@ -492,12 +505,13 @@ function AddDomainModal({ onClose }: { onClose: () => void }) {
     mutationFn: (data: any) => domainsApi.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['domains'] })
+      toast.success('Domain added')
       onClose()
     },
-    onError: (err: any) => setError(err.response?.data?.detail || 'Failed to add domain'),
+    onError: (err: any) => { setError(err.response?.data?.detail || 'Failed to add domain'); toast.error('Failed to add domain') },
   })
 
-  const categories = ['Business', 'Education', 'Finance', 'Health', 'News', 'Internet']
+  const categories = CATEGORIES
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>

@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { domainsApi, jobsApi, vendorsApi } from '@/api/client'
+import toast from 'react-hot-toast'
+import { CATEGORIES, HIDDEN_VENDORS } from '@/lib/constants'
 import { useWebSocket } from '@/context/WebSocketContext'
 import StatusBadge from '@/components/StatusBadge'
 import CategoryBadge from '@/components/CategoryBadge'
@@ -69,10 +71,10 @@ export default function DomainDetailPage() {
 
   const saveMutation = useMutation({
     mutationFn: () => domainsApi.update(id!, {
-      desired_category: desiredCategory || undefined,
-      notes: notes || undefined,
-      custom_text: customText || undefined,
-      email_for_submit: emailForSubmit || undefined,
+      desired_category: desiredCategory || null,
+      notes: notes || null,
+      custom_text: customText || null,
+      email_for_submit: emailForSubmit || null,
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['domain', id] })
@@ -80,7 +82,7 @@ export default function DomainDetailPage() {
     },
   })
 
-  const categories = ['Business', 'Education', 'Finance', 'Health', 'News', 'Internet']
+  const categories = CATEGORIES
 
   // Build result lookup by vendor name
   const resultMap: Record<string, any> = {}
@@ -89,7 +91,7 @@ export default function DomainDetailPage() {
     if (vendorName) resultMap[vendorName] = r
   })
 
-  const categoryVendors = vendors?.filter((v: any) => v.vendor_type === 'category') || []
+  const categoryVendors = vendors?.filter((v: any) => v.vendor_type === 'category' && !HIDDEN_VENDORS.has(v.name)) || []
   const reputationVendors = vendors?.filter((v: any) => v.vendor_type === 'reputation') || []
 
   return (
