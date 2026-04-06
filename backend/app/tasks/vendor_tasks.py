@@ -109,12 +109,23 @@ def save_check_result(
 def run_vendor_check(self, job_id: str, domain_id: str, domain_name: str,
                      vendor_name: str, vendor_id: int, action_type: str,
                      email: str = None, category: str = None):
+    import io, logging, time as _time
+
     db = SessionLocal()
+    start_time = _time.time()
+
+    # Capture all log output during vendor operation
+    log_capture = io.StringIO()
+    log_handler = logging.StreamHandler(log_capture)
+    log_handler.setLevel(logging.DEBUG)
+    log_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%H:%M:%S"))
+    root_logger = logging.getLogger()
+    root_logger.addHandler(log_handler)
+
     try:
         update_job_progress(db, job_id, vendor_name, "running")
         publish_update(job_id, vendor_name, "running")
 
-        # Import and run the appropriate vendor module
         from app.tasks.classifier_bridge import run_vendor_operation
         result = run_vendor_operation(
             vendor_name=vendor_name,
@@ -123,6 +134,11 @@ def run_vendor_check(self, job_id: str, domain_id: str, domain_name: str,
             email=email,
             category=category,
         )
+
+        elapsed = round(_time.time() - start_time, 1)
+        logs = log_capture.getvalue()
+        result["logs"] = logs
+        result["duration_seconds"] = elapsed
 
         save_check_result(
             db, domain_id, vendor_id, action_type,
@@ -133,20 +149,24 @@ def run_vendor_check(self, job_id: str, domain_id: str, domain_name: str,
         )
         update_job_progress(db, job_id, vendor_name, "success")
         publish_update(job_id, vendor_name, "success", category=result.get("category"))
-        return {"vendor": vendor_name, "status": "success"}
+        return {"vendor": vendor_name, "status": "success", "duration": elapsed}
 
     except Exception as e:
+        elapsed = round(_time.time() - start_time, 1)
+        logs = log_capture.getvalue()
         error_msg = f"{str(e)}\n{traceback.format_exc()}"
         save_check_result(
             db, domain_id, vendor_id, action_type,
             status="failed",
             error_message=error_msg,
+            raw_response={"logs": logs, "duration_seconds": elapsed},
         )
         update_job_progress(db, job_id, vendor_name, "failed")
         publish_update(job_id, vendor_name, "failed", error=str(e))
-        return {"vendor": vendor_name, "status": "failed"}
+        return {"vendor": vendor_name, "status": "failed", "duration": elapsed}
 
     finally:
+        root_logger.removeHandler(log_handler)
         db.close()
 
 
