@@ -1,10 +1,19 @@
 import { cn } from '@/lib/utils'
 
+function toTitleCase(str: string): string {
+  return str
+    .toLowerCase()
+    .split(/[\s/]+/)
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ')
+}
+
 export default function CategoryBadge({ category, desired }: { category?: string | null; desired?: string | null }) {
   if (!category) return <span className="text-[11px] text-muted-foreground/50">--</span>
 
-  const isMatch = desired && category.toLowerCase().includes(desired.toLowerCase())
   const lower = category.toLowerCase()
+  const display = toTitleCase(category)
+  const isMatch = desired && lower.includes(desired.toLowerCase())
 
   let color = 'bg-secondary/80 text-secondary-foreground'
   if (lower.includes('uncategorized') || lower.includes('not found') || lower.includes('newly observed')) {
@@ -21,13 +30,15 @@ export default function CategoryBadge({ category, desired }: { category?: string
     color = 'bg-amber-500/15 text-amber-400'
   } else if (lower.includes('technology') || lower.includes('internet') || lower.includes('computer')) {
     color = 'bg-cyan-500/15 text-cyan-400'
+  } else if (lower.includes('malicious') || lower.includes('phishing') || lower.includes('spam')) {
+    color = 'bg-red-500/20 text-red-400'
   }
 
   return (
     <span className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium', color)}>
-      {category}
+      {display}
       {desired && isMatch && <span className="text-emerald-400 ml-0.5">&#10003;</span>}
-      {desired && !isMatch && category.toLowerCase() !== 'not found' && <span className="text-red-400 ml-0.5">&#10007;</span>}
+      {desired && !isMatch && !lower.includes('not found') && <span className="text-red-400 ml-0.5">&#10007;</span>}
     </span>
   )
 }
