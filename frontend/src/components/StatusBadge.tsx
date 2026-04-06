@@ -1,22 +1,42 @@
 import { cn } from '@/lib/utils'
+import { Loader2 } from 'lucide-react'
 
-const statusStyles: Record<string, string> = {
-  success: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/20',
-  failed: 'bg-red-500/15 text-red-700 dark:text-red-400 border-red-500/20',
-  running: 'bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-500/20 animate-pulse',
-  pending: 'bg-yellow-500/15 text-yellow-700 dark:text-yellow-400 border-yellow-500/20',
-  completed: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/20',
-  cancelled: 'bg-gray-500/15 text-gray-700 dark:text-gray-400 border-gray-500/20',
+const styles: Record<string, string> = {
+  clean: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
+  success: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
+  completed: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
+  failed: 'bg-red-500/20 text-red-400 border-red-500/30',
+  error: 'bg-red-500/20 text-red-400 border-red-500/30',
+  running: 'bg-sky-500/20 text-sky-400 border-sky-500/30',
+  pending: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
+  submitted: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
+  uncategorized: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
+  cancelled: 'bg-neutral-500/20 text-neutral-400 border-neutral-500/30',
 }
 
-export default function StatusBadge({ status }: { status: string | null | undefined }) {
-  if (!status) return <span className="text-xs text-muted-foreground">--</span>
+const labels: Record<string, string> = {
+  success: 'clean',
+  completed: 'completed',
+}
+
+export default function StatusBadge({ status, loading }: { status: string | null | undefined; loading?: boolean }) {
+  if (loading) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-sky-500/20 text-sky-400 border border-sky-500/30">
+        <Loader2 size={10} className="animate-spin" />
+        checking
+      </span>
+    )
+  }
+  if (!status) return <span className="text-[11px] text-muted-foreground/50">--</span>
+  const label = labels[status] || status
   return (
     <span className={cn(
-      'inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border',
-      statusStyles[status] || statusStyles.pending
+      'inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium border',
+      styles[status] || styles.pending
     )}>
-      {status}
+      {status === 'running' && <Loader2 size={10} className="animate-spin mr-1" />}
+      {label}
     </span>
   )
 }
