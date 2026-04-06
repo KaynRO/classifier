@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { domainsApi, jobsApi, vendorsApi } from '@/api/client'
 import StatusBadge from '@/components/StatusBadge'
 import CategoryBadge from '@/components/CategoryBadge'
-import { Plus, Search, Trash2, ChevronDown, ChevronRight, Save, X, Loader2, ScanSearch } from 'lucide-react'
+import { Plus, Search, Trash2, ChevronDown, ChevronRight, Save, X, Loader2, ScanSearch, Download, PlayCircle, SendHorizonal } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { CATEGORIES, HIDDEN_VENDORS } from '@/lib/constants'
 
@@ -66,6 +66,23 @@ export default function DomainsPage() {
           <p className="text-sm text-muted-foreground mt-0.5">Threat reputation and web proxy categorization across security vendors</p>
         </div>
         <div className="flex gap-2">
+          <button
+            onClick={async () => {
+              try {
+                const res = await domainsApi.exportCsv()
+                const url = window.URL.createObjectURL(new Blob([res.data]))
+                const a = document.createElement('a')
+                a.href = url
+                a.download = `classifier_export_${new Date().toISOString().slice(0,10)}.csv`
+                a.click()
+                window.URL.revokeObjectURL(url)
+                toast.success('Export downloaded')
+              } catch { toast.error('Export failed') }
+            }}
+            className="flex items-center gap-2 px-4 py-2 rounded-md border border-border text-sm font-medium hover:bg-accent transition-colors"
+          >
+            <Download size={14} /> Export CSV
+          </button>
           <button
             onClick={() => bulkCheckMutation.mutate()}
             disabled={scanningAll}
@@ -132,14 +149,7 @@ export default function DomainsPage() {
         <div className="overflow-x-auto">
           <table className="text-sm" style={{ minWidth: `${220 + 150 + categoryVendors.length * 195 + 50}px` }}>
             <thead>
-              <tr className="border-b border-border text-[11px] uppercase tracking-wider text-muted-foreground">
-                <th className="px-5 py-2.5 text-left font-medium w-[220px] sticky left-0 bg-card z-10">Domain</th>
-                <th className="px-4 py-2.5 text-left font-medium w-[150px]">Desired Category</th>
-                {categoryVendors.map((v: any) => (
-                  <th key={v.id} className="px-4 py-2.5 text-center font-medium w-[195px]">{v.display_name}</th>
-                ))}
-                <th className="px-3 py-2.5 text-center font-medium w-[50px]"></th>
-              </tr>
+              <VendorHeaders categoryVendors={categoryVendors} domains={data?.items || []} />
             </thead>
             <tbody>
               {data?.items?.map((domain: any) => (
@@ -176,6 +186,52 @@ export default function DomainsPage() {
     </div>
   )
 }
+
+/* ========== VENDOR COLUMN HEADERS WITH TIMESTAMPS ========== */
+function VendorHeaders({ categoryVendors, domains }: { categoryVendors: any[]; domains: any[] }) {
+  // Aggregate latest check time per vendor across all domains
+  const allResults = useQuery({
+    queryKey: ['all-results-for-headers'],
+    queryFn: async () => {
+      if (!domains.length) return []
+      const promises = domains.slice(0, 10).map(d => domainsApi.results(d.id).then(r => r.data))
+      return (await Promise.all(promises)).flat()
+    },
+    enabled: domains.length > 0,
+    staleTime: 10000,
+  })
+
+  const latestPerVendor: Record<number, string | null> = {}
+  allResults.data?.forEach((r: any) => {
+    if (r.completed_at) {
+      const existing = latestPerVendor[r.vendor_id]
+      if (!existing || r.completed_at > existing) {
+        latestPerVendor[r.vendor_id] = r.completed_at
+      }
+    }
+  })
+
+  return (
+    <tr className="border-b border-border text-[11px] uppercase tracking-wider text-muted-foreground">
+      <th className="px-5 py-2.5 text-left font-medium w-[220px] sticky left-0 bg-card z-10">Domain</th>
+      <th className="px-4 py-2.5 text-left font-medium w-[150px]">Desired Category</th>
+      {categoryVendors.map((v: any) => (
+        <th key={v.id} className="px-4 py-2.5 text-center font-medium w-[195px]">
+          <div className="flex flex-col items-center gap-0.5">
+            <span>{v.display_name}</span>
+            {latestPerVendor[v.id] && (
+              <span className="text-[9px] font-normal normal-case text-muted-foreground/50">
+                {timeAgo(latestPerVendor[v.id]!)}
+              </span>
+            )}
+          </div>
+        </th>
+      ))}
+      <th className="px-3 py-2.5 text-center font-medium w-[80px]">Actions</th>
+    </tr>
+  )
+}
+
 
 function LoadingRow({ cols }: { cols: number }) {
   return <tr><td colSpan={cols} className="px-5 py-10 text-center text-muted-foreground text-sm"><Loader2 size={18} className="animate-spin inline mr-2 text-primary/50" />Loading domains...</td></tr>
@@ -285,17 +341,33 @@ function CategorizationRow({ domain, categoryVendors, expanded, onToggle, onDele
   }
 
   const checkVendorMutation = useMutation({
-    mutationFn: (vendor: string) => jobsApi.check({ domain_id: domain.id, vendor }),
-    onMutate: (vendor) => { startBusy(`check-${vendor}`); toast(`Checking ${vendor}...`, { icon: '🔄' }) },
-    onError: (_, vendor) => toast.error(`Check failed for ${vendor}`),
-    onSettled: (_, __, vendor) => clearBusy(`check-${vendor}`),
+    mutationFn: (vendor: string) => jobsApi.check({
+      domain_id: domain.id,
+      vendor: vendor === '__all__' ? undefined : vendor,
+    }),
+    onMutate: (vendor) => {
+      if (vendor !== '__all__') { startBusy(`check-${vendor}`); toast(`Checking ${vendor}...`, { icon: '🔄' }) }
+    },
+    onError: (_, vendor) => toast.error(`Check failed${vendor !== '__all__' ? ` for ${vendor}` : ''}`),
+    onSettled: (_, __, vendor) => {
+      if (vendor !== '__all__') clearBusy(`check-${vendor}`)
+      queryClient.invalidateQueries({ queryKey: ['domain-results', domain.id] })
+    },
   })
 
   const submitVendorMutation = useMutation({
-    mutationFn: (vendor: string) => jobsApi.submit({ domain_id: domain.id, vendor }),
-    onMutate: (vendor) => { startBusy(`submit-${vendor}`); toast(`Submitting to ${vendor}...`, { icon: '📤' }) },
-    onError: (_, vendor) => toast.error(`Submit failed for ${vendor}`),
-    onSettled: (_, __, vendor) => clearBusy(`submit-${vendor}`),
+    mutationFn: (vendor: string) => jobsApi.submit({
+      domain_id: domain.id,
+      vendor: vendor === '__all__' ? undefined : vendor,
+    }),
+    onMutate: (vendor) => {
+      if (vendor !== '__all__') { startBusy(`submit-${vendor}`); toast(`Submitting to ${vendor}...`, { icon: '📤' }) }
+    },
+    onError: (_, vendor) => toast.error(`Submit failed${vendor !== '__all__' ? ` for ${vendor}` : ''}`),
+    onSettled: (_, __, vendor) => {
+      if (vendor !== '__all__') clearBusy(`submit-${vendor}`)
+      queryClient.invalidateQueries({ queryKey: ['domain-results', domain.id] })
+    },
   })
 
   const resultMap: Record<number, any> = {}
@@ -334,10 +406,6 @@ function CategorizationRow({ domain, categoryVendors, expanded, onToggle, onDele
                 ) : (
                   <StatusBadge status={r?.status} />
                 )}
-                {/* Last checked timestamp */}
-                {r?.completed_at && !isCheckBusy && (
-                  <span className="text-[9px] text-muted-foreground/60">{timeAgo(r.completed_at)}</span>
-                )}
                 {/* Buttons */}
                 <div className="flex items-center gap-1 mt-0.5">
                   <button
@@ -351,14 +419,17 @@ function CategorizationRow({ domain, categoryVendors, expanded, onToggle, onDele
                   >
                     {isCheckBusy ? <Loader2 size={9} className="animate-spin" /> : 'Check'}
                   </button>
-                  {v.supports_submit && domain.desired_category && (
+                  {v.supports_submit && (
                     <button
                       onClick={() => submitVendorMutation.mutate(v.name)}
-                      disabled={isSubmitBusy || isCheckBusy}
+                      disabled={isSubmitBusy || isCheckBusy || !domain.desired_category}
+                      title={!domain.desired_category ? 'Set desired category first' : `Submit ${domain.desired_category} to ${v.display_name}`}
                       className={`px-2.5 py-1 rounded text-[11px] min-h-[28px] font-medium border transition-all duration-200 ${
                         isSubmitBusy || isCheckBusy
                           ? 'border-primary/20 text-primary/30 cursor-not-allowed bg-primary/5'
-                          : 'border-primary/30 text-primary hover:bg-primary/10'
+                          : !domain.desired_category
+                            ? 'border-border/30 text-muted-foreground/30 cursor-not-allowed'
+                            : 'border-primary/30 text-primary hover:bg-primary/10'
                       }`}
                     >
                       {isSubmitBusy ? <Loader2 size={9} className="animate-spin" /> : 'Submit'}
@@ -369,11 +440,25 @@ function CategorizationRow({ domain, categoryVendors, expanded, onToggle, onDele
             </td>
           )
         })}
-        <td className="px-3 py-2.5 text-center">
-          <button onClick={onDelete}
-            className="p-1 rounded hover:bg-destructive/15 text-muted-foreground/50 hover:text-destructive transition-colors" title="Delete">
-            <Trash2 size={13} />
-          </button>
+        <td className="px-3 py-2 text-center">
+          <div className="flex flex-col items-center gap-1">
+            <button
+              onClick={() => { checkVendorMutation.mutate('__all__'); toast('Checking all vendors...', { icon: '🔄' }) }}
+              className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors" title="Check All Vendors">
+              <PlayCircle size={15} />
+            </button>
+            {domain.desired_category && (
+              <button
+                onClick={() => { submitVendorMutation.mutate('__all__'); toast('Submitting to all vendors...', { icon: '📤' }) }}
+                className="p-1.5 rounded hover:bg-primary/10 text-primary/60 hover:text-primary transition-colors" title="Submit All Vendors">
+                <SendHorizonal size={15} />
+              </button>
+            )}
+            <button onClick={onDelete}
+              className="p-1.5 rounded hover:bg-destructive/15 text-muted-foreground/30 hover:text-destructive transition-colors" title="Delete">
+              <Trash2 size={13} />
+            </button>
+          </div>
         </td>
       </tr>
 

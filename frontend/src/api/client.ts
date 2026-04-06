@@ -43,6 +43,7 @@ export const domainsApi = {
   delete: (id: string) => api.delete(`/domains/${id}`),
   results: (id: string) => api.get(`/domains/${id}/results`),
   history: (id: string, params?: Record<string, any>) => api.get(`/domains/${id}/history`, { params }),
+  exportCsv: () => api.get('/domains/export/csv', { responseType: 'blob' }),
 }
 
 // --- Jobs ---
