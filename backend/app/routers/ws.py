@@ -1,6 +1,7 @@
 import json
 import asyncio
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
+from jose import JWTError, jwt
 import redis.asyncio as aioredis
 from app.config import settings
 
@@ -33,11 +34,25 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
+def verify_ws_token(token: str | None) -> bool:
+    if not token:
+        return False
+    try:
+        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+        return payload.get("sub") is not None
+    except JWTError:
+        return False
+
+
 @router.websocket("/ws/jobs")
-async def websocket_jobs(ws: WebSocket):
+async def websocket_jobs(ws: WebSocket, token: str = Query(default="")):
+    # Authenticate via query param token
+    if not verify_ws_token(token):
+        await ws.close(code=4001, reason="Unauthorized")
+        return
+
     await manager.connect(ws)
 
-    # Subscribe to Redis pub/sub for job updates
     redis_client = aioredis.from_url(settings.REDIS_URL)
     pubsub = redis_client.pubsub()
     await pubsub.subscribe("job_updates")
@@ -59,7 +74,6 @@ async def websocket_jobs(ws: WebSocket):
                 except WebSocketDisconnect:
                     break
 
-        # Run both listeners concurrently
         await asyncio.gather(listen_redis(), listen_client(), return_exceptions=True)
 
     finally:

@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models import Job, Domain, Vendor, User
 from app.schemas import JobCreate, JobResponse, PaginatedResponse
-from app.auth import get_current_user
+from app.auth import get_current_user, require_admin
 from app.tasks.celery_app import celery_app
 
 router = APIRouter(prefix="/api/v1/jobs", tags=["jobs"])
@@ -71,7 +71,7 @@ async def create_reputation_job(
 async def create_submit_job(
     data: JobCreate,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     job = await _create_job(db, data.domain_id, "submit", data.vendor, user.id)
     return JobResponse.model_validate(job)
@@ -81,7 +81,7 @@ async def create_submit_job(
 async def bulk_check(
     vendor: str | None = None,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     result = await db.execute(select(Domain).where(Domain.is_active == True))
     domains = result.scalars().all()

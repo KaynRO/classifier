@@ -8,7 +8,7 @@ from app.models import Domain, CheckResult, CheckHistory, User
 from app.schemas import (
     DomainCreate, DomainUpdate, DomainResponse, CheckResultResponse, PaginatedResponse
 )
-from app.auth import get_current_user
+from app.auth import get_current_user, require_admin
 
 router = APIRouter(prefix="/api/v1/domains", tags=["domains"])
 
@@ -46,7 +46,7 @@ async def list_domains(
 async def create_domain(
     data: DomainCreate,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     existing = await db.execute(select(Domain).where(Domain.domain == data.domain))
     if existing.scalar_one_or_none():
@@ -73,7 +73,7 @@ async def update_domain(
     domain_id: UUID,
     data: DomainUpdate,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     result = await db.execute(select(Domain).where(Domain.id == domain_id))
     domain = result.scalar_one_or_none()
@@ -89,7 +89,7 @@ async def update_domain(
 
 
 @router.delete("/{domain_id}", status_code=204)
-async def delete_domain(domain_id: UUID, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+async def delete_domain(domain_id: UUID, db: AsyncSession = Depends(get_db), user: User = Depends(require_admin)):
     result = await db.execute(select(Domain).where(Domain.id == domain_id))
     domain = result.scalar_one_or_none()
     if not domain:

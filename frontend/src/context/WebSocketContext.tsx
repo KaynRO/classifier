@@ -25,8 +25,10 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   const reconnectTimer = useRef<NodeJS.Timeout>()
 
   const connect = useCallback(() => {
+    const token = localStorage.getItem('token')
+    if (!token) return
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws/jobs`)
+    const ws = new WebSocket(`${protocol}//${window.location.host}/ws/jobs?token=${encodeURIComponent(token)}`)
 
     ws.onopen = () => setIsConnected(true)
     ws.onclose = () => {
