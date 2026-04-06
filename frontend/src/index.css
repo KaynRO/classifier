@@ -22,6 +22,10 @@
     --input: 260 13% 90%;
     --ring: 262 60% 55%;
     --radius: 0.5rem;
+    --sidebar: 250 10% 95%;
+    --sidebar-border: 260 13% 88%;
+    --table-row-hover: 260 14% 96%;
+    --table-header: 250 10% 95%;
   }
 
   .dark {
@@ -55,6 +59,9 @@
   }
   body {
     @apply bg-background text-foreground antialiased;
+  }
+  button:focus-visible, a:focus-visible, select:focus-visible {
+    @apply ring-2 ring-ring ring-offset-2 ring-offset-background outline-none;
   }
 }
 
