@@ -5,6 +5,49 @@ import { useWebSocket } from '@/context/WebSocketContext'
 import StatusBadge from '@/components/StatusBadge'
 import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react'
 
+// Convert ANSI escape codes to styled HTML spans
+function AnsiLog({ text }: { text: string }) {
+  if (!text) return <span className="text-muted-foreground/40">No logs captured for this vendor.</span>
+
+  const ansiColors: Record<string, string> = {
+    '30': '#6b7280', '31': '#ef4444', '32': '#22c55e', '33': '#eab308',
+    '34': '#3b82f6', '35': '#d946ef', '36': '#06b6d4', '37': '#e5e7eb',
+    '90': '#9ca3af', '91': '#f87171', '92': '#4ade80', '93': '#facc15',
+    '94': '#60a5fa', '95': '#e879f9', '96': '#22d3ee', '97': '#f3f4f6',
+  }
+
+  const parts: { text: string; color?: string }[] = []
+  // eslint-disable-next-line no-control-regex
+  const regex = /\x1B\[([0-9;]+)m/g
+  let lastIdx = 0
+  let currentColor: string | undefined
+
+  let match
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIdx) {
+      parts.push({ text: text.slice(lastIdx, match.index), color: currentColor })
+    }
+    const codes = match[1].split(';')
+    const colorCode = codes.find(c => ansiColors[c])
+    if (codes.includes('0')) currentColor = undefined
+    else if (colorCode) currentColor = ansiColors[colorCode]
+    lastIdx = match.index + match[0].length
+  }
+  if (lastIdx < text.length) {
+    parts.push({ text: text.slice(lastIdx), color: currentColor })
+  }
+
+  return (
+    <>
+      {parts.map((p, i) =>
+        p.color
+          ? <span key={i} style={{ color: p.color }}>{p.text}</span>
+          : <span key={i}>{p.text}</span>
+      )}
+    </>
+  )
+}
+
 export default function JobsPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
@@ -216,9 +259,9 @@ function JobRow({ job, displayStatus, domainName, total, done, allDone, entries,
                   {logsMap[selectedVendor].error && (
                     <div className="text-xs text-red-400 mb-2 max-h-20 overflow-y-auto font-mono whitespace-pre-wrap">{logsMap[selectedVendor].error}</div>
                   )}
-                  <div className="bg-background/80 rounded-md border border-border p-3 max-h-64 overflow-y-auto">
+                  <div className="bg-[hsl(260,22%,6%)] rounded-md border border-border p-3 max-h-80 overflow-y-auto">
                     <pre className="text-[11px] font-mono text-muted-foreground whitespace-pre-wrap leading-relaxed">
-                      {logsMap[selectedVendor].logs || 'No logs captured for this vendor.'}
+                      <AnsiLog text={logsMap[selectedVendor].logs} />
                     </pre>
                   </div>
                 </div>
