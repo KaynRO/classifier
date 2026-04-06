@@ -22,4 +22,4 @@ celery_app.conf.update(
     },
 )
 
-celery_app.autodiscover_tasks(["app.tasks"])
+celery_app.conf.include = ["app.tasks.vendor_tasks"]
