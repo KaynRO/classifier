@@ -14,7 +14,7 @@ VENDORS = [
     {"name": "zvelo", "display_name": "Zvelo", "vendor_type": "category", "supports_check": True, "supports_submit": True},
     {"name": "watchguard", "display_name": "WatchGuard", "vendor_type": "category", "supports_check": True, "supports_submit": True},
     {"name": "talosintelligence", "display_name": "Talos Intelligence", "vendor_type": "category", "supports_check": True, "supports_submit": True},
-    {"name": "lightspeedsystems", "display_name": "LightSpeed Systems", "vendor_type": "category", "supports_check": True, "supports_submit": False},
+    {"name": "lightspeedsystems", "display_name": "LightSpeed Systems", "vendor_type": "category", "supports_check": True, "supports_submit": False, "is_active": False},
     {"name": "intelixsophos", "display_name": "Sophos Intelix", "vendor_type": "category", "supports_check": True, "supports_submit": False},
     {"name": "fortiguard", "display_name": "FortiGuard", "vendor_type": "category", "supports_check": True, "supports_submit": False},
     {"name": "checkpoint", "display_name": "Check Point", "vendor_type": "category", "supports_check": True, "supports_submit": False},
