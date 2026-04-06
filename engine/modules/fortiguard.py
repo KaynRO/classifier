@@ -65,7 +65,41 @@ class FortiGuard:
             except Exception as e:
                 self.logger.warning(f"[!] ALTCHA handling failed: {e}")
 
-            # Click submit via JS (two overlapping buttons with same ID — normal click gets intercepted)
+            # Handle secondary image captcha ("Please enter the code")
+            try:
+                code_input = driver.find_elements("css selector", "input[name='code']")
+                if code_input and code_input[0].is_displayed():
+                    self.logger.info("[*] Secondary image captcha detected — solving with 2Captcha...")
+                    # Find the captcha image
+                    captcha_img = driver.find_elements("css selector", "#captcha_img, img[src*='captcha']")
+                    if captcha_img:
+                        img_src = captcha_img[0].get_attribute("src")
+                        if img_src:
+                            solver = get_captcha_solver()
+                            if solver and solver.solver:
+                                # Download and solve the image captcha
+                                import base64
+                                img_data = driver.execute_script("""
+                                    var img = arguments[0];
+                                    var canvas = document.createElement('canvas');
+                                    canvas.width = img.naturalWidth;
+                                    canvas.height = img.naturalHeight;
+                                    canvas.getContext('2d').drawImage(img, 0, 0);
+                                    return canvas.toDataURL('image/png').split(',')[1];
+                                """, captcha_img[0])
+                                if img_data:
+                                    result = solver.solver.normal(img_data, numeric=0, minLen=4, maxLen=8)
+                                    code = result.get("code") if isinstance(result, dict) else str(result)
+                                    code_input[0].clear()
+                                    code_input[0].send_keys(code)
+                                    self.logger.info(f"[*] Entered captcha code: {code}")
+                                    time.sleep(1)
+                    else:
+                        self.logger.warning("[!] Could not find captcha image")
+            except Exception as e:
+                self.logger.warning(f"[!] Image captcha handling failed: {e}")
+
+            # Click submit via JS (two overlapping buttons with same ID)
             try:
                 driver.execute_script("""
                     var btns = document.querySelectorAll('#webfilter_search_form_submit');

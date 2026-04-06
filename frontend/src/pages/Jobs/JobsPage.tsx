@@ -48,6 +48,68 @@ function AnsiLog({ text }: { text: string }) {
   )
 }
 
+// Strip ANSI escape codes for comparison purposes
+function stripAnsi(text: string): string {
+  // eslint-disable-next-line no-control-regex
+  return text.replace(/\x1B\[[0-9;]*m/g, '')
+}
+
+// Strip timestamp prefix and log level for dedup comparison
+// Matches patterns like "2024-01-01 12:00:00 - WARNING - " or "2024-01-01 12:00:00,123 - module - WARNING - "
+function stripPrefixes(line: string): string {
+  return line
+    .replace(/^\d{4}-\d{2}-\d{2}[\sT]\d{2}:\d{2}:\d{2}[,.\d]*\s*-\s*/, '')
+    .replace(/^(DEBUG|INFO|WARNING|ERROR|CRITICAL)\s*-\s*/, '')
+    .replace(/^\S+\s*-\s*(DEBUG|INFO|WARNING|ERROR|CRITICAL)\s*-\s*/, '')
+    .trim()
+}
+
+const NOISE_PATTERNS = [
+  /chromedriver/i,
+  /uc_driver/i,
+  /download\s*complete/i,
+  /extracting/i,
+  /\bunzip\b/i,
+  /saved\s*to:/i,
+  /\bexecutable\b/i,
+  /ready\s*for\s*use/i,
+]
+
+function filterLogs(rawLogs: string): string {
+  const lines = rawLogs.split('\n')
+  const filtered: string[] = []
+  let prevKey = ''
+
+  for (const line of lines) {
+    const plain = stripAnsi(line).trim()
+
+    // Skip empty lines or lines that are just a timestamp with dashes
+    if (!plain || /^\d{4}-\d{2}-\d{2}[\sT]\d{2}:\d{2}:\d{2}[,.\d]*\s*-\s*-?\s*$/.test(plain)) {
+      continue
+    }
+    // Also skip lines that are only dashes/whitespace after stripping
+    if (/^[\s\-]+$/.test(plain)) {
+      continue
+    }
+
+    // Skip noise lines
+    if (NOISE_PATTERNS.some(p => p.test(plain))) {
+      continue
+    }
+
+    // Deduplicate consecutive lines with same message content
+    const key = stripPrefixes(plain)
+    if (key && key === prevKey) {
+      continue
+    }
+    prevKey = key
+
+    filtered.push(line)
+  }
+
+  return filtered.join('\n')
+}
+
 export default function JobsPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
@@ -259,9 +321,9 @@ function JobRow({ job, displayStatus, domainName, total, done, allDone, entries,
                   {logsMap[selectedVendor].error && (
                     <div className="text-xs text-red-400 mb-2 max-h-20 overflow-y-auto font-mono whitespace-pre-wrap">{logsMap[selectedVendor].error}</div>
                   )}
-                  <div className="bg-[hsl(260,22%,6%)] rounded-md border border-border p-3 max-h-80 overflow-y-auto">
+                  <div className="bg-[hsl(260,22%,6%)] rounded-md border border-border p-3 overflow-y-auto resize-y" style={{ minHeight: '6rem', height: '20rem', maxHeight: '80vh' }}>
                     <pre className="text-[11px] font-mono text-muted-foreground whitespace-pre-wrap leading-relaxed">
-                      <AnsiLog text={logsMap[selectedVendor].logs} />
+                      <AnsiLog text={filterLogs(logsMap[selectedVendor].logs)} />
                     </pre>
                   </div>
                 </div>
