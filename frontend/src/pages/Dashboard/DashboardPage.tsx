@@ -49,22 +49,22 @@ export default function DashboardPage() {
       </div>
 
       {/* Domain Vendor Matrix */}
-      <div className="rounded-lg border border-border bg-card">
-        <div className="p-4 border-b border-border flex items-center justify-between">
-          <h3 className="font-semibold">Domain / Vendor Matrix</h3>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <RefreshCw size={14} className={messages.length > 0 ? 'animate-spin text-blue-500' : ''} />
+      <div className="rounded-lg border border-border bg-card overflow-hidden">
+        <div className="px-5 py-3 border-b border-border bg-[hsl(var(--table-header,var(--secondary)))] flex items-center justify-between">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Domain / Vendor Matrix</h3>
+          <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+            <RefreshCw size={12} className={messages.length > 0 ? 'animate-spin text-primary' : ''} />
             Auto-refreshing
           </div>
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="text-sm" style={{ minWidth: `${240 + (matrix?.items?.[0]?.results?.length || 10) * 170}px` }}>
             <thead>
-              <tr className="border-b border-border">
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground sticky left-0 bg-card z-10">Domain</th>
+              <tr className="border-b border-border text-[11px] uppercase tracking-wider text-muted-foreground">
+                <th className="px-5 py-2.5 text-left font-medium w-[240px] sticky left-0 bg-card z-10">Domain</th>
                 {matrix?.items?.[0]?.results?.map((cell: any) => (
-                  <th key={cell.vendor_name} className="px-3 py-3 text-center font-medium text-muted-foreground whitespace-nowrap text-xs">
+                  <th key={cell.vendor_name} className="px-4 py-2.5 text-center font-medium w-[170px]">
                     {cell.vendor_display_name}
                   </th>
                 ))}
@@ -72,21 +72,28 @@ export default function DashboardPage() {
             </thead>
             <tbody>
               {matrix?.items?.map((row: any) => (
-                <tr key={row.domain.id} className="border-b border-border hover:bg-accent/50 transition-colors">
-                  <td className="px-4 py-3 font-medium sticky left-0 bg-card z-10">
-                    <Link to={`/domains/${row.domain.id}`} className="hover:underline text-primary/90 dark:text-[hsl(265,50%,72%)]">
+                <tr key={row.domain.id} className="border-b border-border hover:bg-[hsl(var(--table-row-hover,var(--accent)))] transition-colors">
+                  <td className="px-5 py-2.5 sticky left-0 bg-card z-10">
+                    <Link to={`/domains/${row.domain.id}`} className="font-medium hover:underline text-primary/90 dark:text-[hsl(265,50%,72%)]">
                       {row.domain.domain}
                     </Link>
                     {row.domain.desired_category && (
-                      <span className="ml-2 text-xs text-muted-foreground">({row.domain.desired_category})</span>
+                      <div className="mt-0.5">
+                        <span className="px-1.5 py-px rounded text-[10px] font-medium bg-primary/10 text-primary/70 dark:text-[hsl(265,40%,65%)]">{row.domain.desired_category}</span>
+                      </div>
                     )}
                   </td>
                   {row.results.map((cell: any) => (
-                    <td key={cell.vendor_name} className="px-3 py-3 text-center">
-                      {cell.status === 'success' ? (
+                    <td key={cell.vendor_name} className="px-4 py-2.5 text-center">
+                      {cell.status === 'running' ? (
+                        <StatusBadge status="running" />
+                      ) : cell.status === 'success' ? (
                         <CategoryBadge category={cell.category} desired={row.domain.desired_category} />
                       ) : (
                         <StatusBadge status={cell.status} />
+                      )}
+                      {cell.last_checked && cell.status !== 'running' && (
+                        <div className="text-[9px] text-muted-foreground/50 mt-0.5">{new Date(cell.last_checked).toLocaleDateString()}</div>
                       )}
                     </td>
                   ))}
@@ -94,7 +101,7 @@ export default function DashboardPage() {
               ))}
               {(!matrix?.items || matrix.items.length === 0) && (
                 <tr>
-                  <td colSpan={20} className="px-4 py-12 text-center text-muted-foreground">
+                  <td colSpan={20} className="px-5 py-12 text-center text-muted-foreground text-sm">
                     No domains added yet. Go to Domains to add your first domain.
                   </td>
                 </tr>

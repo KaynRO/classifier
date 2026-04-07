@@ -65,12 +65,15 @@ def save_check_result(
 
     if existing:
         existing.status = status
-        existing.category = category
-        existing.reputation = reputation
-        existing.error_message = error_message
-        existing.raw_response = raw_response
-        existing.completed_at = now
-        existing.attempts = (existing.attempts or 0) + 1
+        if status != "running":
+            existing.category = category
+            existing.reputation = reputation
+            existing.error_message = error_message
+            existing.raw_response = raw_response
+            existing.completed_at = now
+            existing.attempts = (existing.attempts or 0) + 1
+        else:
+            existing.started_at = now
     else:
         result = CheckResult(
             domain_id=UUID(domain_id),
@@ -137,6 +140,13 @@ def run_vendor_check(self, job_id: str, domain_id: str, domain_name: str,
     try:
         update_job_progress(db, job_id, vendor_name, "running")
         publish_update(job_id, vendor_name, "running")
+
+        # Mark the check_result as 'running' in DB so frontend shows loading
+        # even after page refresh/navigation
+        save_check_result(
+            db, domain_id, vendor_id, action_type,
+            status="running",
+        )
 
         from app.tasks.classifier_bridge import run_vendor_operation
         result = run_vendor_operation(
