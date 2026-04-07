@@ -19,7 +19,18 @@ class FortiGuard:
         try:
             clean_domain = target_url.replace("https://", "").replace("http://", "").strip("/")
 
-            # Load the main webfilter page (not ?q= which gets WAF blocked)
+            # Strategy 1: Try BrightData Web Unlocker (bypasses all CAPTCHAs via proxy)
+            solver = get_dual_solver()
+            bd_result = solver.fetch_fortiguard_category(clean_domain)
+            if bd_result:
+                category = bd_result
+                if not return_reputation_only:
+                    self.logger.success(f"[+] Category (via BrightData): {category}")
+                return category
+            else:
+                self.logger.info("[*] BrightData unavailable — falling back to browser")
+
+            # Strategy 2: Browser-based with CAPTCHA solving
             load_url_and_wait_until_it_is_fully_loaded(driver, self.url)
             time.sleep(3)
 

@@ -1,10 +1,10 @@
 """
-Dual captcha solver: 2Captcha (primary) → CapSolver (fallback).
+Multi-solver captcha system: 2Captcha → CapSolver → BrightData Web Unlocker.
 
 Strategy per vendor per captcha type:
 - Try 2Captcha up to 3 times
 - If all 3 fail, switch to CapSolver and try up to 3 times
-- Total max 6 attempts per vendor per captcha encounter
+- BrightData Web Unlocker used as page-level proxy (fetches page with captcha auto-solved)
 """
 
 import time
@@ -17,9 +17,10 @@ logger = Logger(__name__)
 
 
 class DualCaptchaSolver:
-    def __init__(self, twocaptcha_key: str = "", capsolver_key: str = ""):
+    def __init__(self, twocaptcha_key: str = "", capsolver_key: str = "", brightdata_key: str = ""):
         self.twocaptcha_key = twocaptcha_key
         self.capsolver_key = capsolver_key
+        self.brightdata_key = brightdata_key
 
     def solve_hcaptcha(self, sitekey: str, page_url: str) -> str | None:
         """Solve hCaptcha. Tries 2Captcha first, falls back to CapSolver."""
@@ -228,6 +229,82 @@ class DualCaptchaSolver:
             return None
 
 
+    # ──── BrightData Web Unlocker ────
+    # Fetches a page through BrightData proxy with CAPTCHAs auto-solved
+    # Returns the full page HTML, not just a token
+
+    def fetch_page_via_brightdata(self, url: str, zone: str = "captcha_solver", timeout: int = 60) -> str | None:
+        """Fetch a URL through BrightData Web Unlocker with auto CAPTCHA solving.
+        Returns the page HTML content, or None on failure.
+
+        Requires a Web Unlocker zone to be created in BrightData dashboard.
+        The brightdata_key is used as the Bearer token for the REST API.
+        """
+        if not self.brightdata_key:
+            return None
+
+        logger.info(f"[*] BrightData: Fetching {url} via Web Unlocker (zone={zone})...")
+        try:
+            # Try REST API approach
+            r = requests.post(
+                "https://api.brightdata.com/request",
+                headers={
+                    "Authorization": f"Bearer {self.brightdata_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "zone": zone,
+                    "url": url,
+                    "format": "raw",
+                },
+                timeout=timeout,
+            )
+            if r.status_code == 200 and len(r.text) > 500:
+                logger.success(f"[+] BrightData: Got page ({len(r.text)} chars)")
+                return r.text
+            elif r.status_code == 400 and "not found" in r.text.lower():
+                logger.warning(f"[!] BrightData: Zone '{zone}' not configured. Create it at brightdata.com/cp")
+                return None
+            else:
+                logger.warning(f"[!] BrightData: HTTP {r.status_code} - {r.text[:100]}")
+                return None
+        except Exception as e:
+            logger.warning(f"[!] BrightData fetch failed: {e}")
+            return None
+
+    def fetch_fortiguard_category(self, domain: str) -> str | None:
+        """Use BrightData to fetch FortiGuard results directly (bypasses ALTCHA + image captcha)."""
+        html = self.fetch_page_via_brightdata(f"https://www.fortiguard.com/webfilter?q={domain}")
+        if not html:
+            return None
+        return self._extract_from_html(html, ["category:"])
+
+    def fetch_sophos_category(self, domain: str) -> str | None:
+        """Use BrightData to fetch Sophos Intelix results (bypasses hCaptcha)."""
+        # Sophos is a SPA — Web Unlocker may not execute JS
+        # Try the direct URL approach
+        html = self.fetch_page_via_brightdata(f"https://intelix.sophos.com/url")
+        if not html:
+            return None
+        # SPA won't have results in static HTML — return None to fall back to browser
+        return None
+
+    def _extract_from_html(self, html: str, labels: list) -> str | None:
+        """Extract a value from HTML by label matching."""
+        import re
+        text = re.sub(r'<[^>]+>', '\n', html)  # Strip HTML tags
+        for line in text.split('\n'):
+            stripped = line.strip()
+            for label in labels:
+                if label in stripped.lower():
+                    parts = stripped.split(":", 1)
+                    if len(parts) > 1 and parts[1].strip():
+                        val = parts[1].strip()
+                        if val.lower() not in ["", "category"]:
+                            return val
+        return None
+
+
 # Singleton — initialized when first imported
 _solver_instance = None
 
@@ -239,8 +316,13 @@ def get_dual_solver() -> DualCaptchaSolver:
         except ImportError:
             twocaptcha_api_key = ""
             capsolver_api_key = ""
+        try:
+            from helpers.credentials import brightdata_api_key
+        except (ImportError, AttributeError):
+            brightdata_api_key = ""
         _solver_instance = DualCaptchaSolver(
             twocaptcha_key=twocaptcha_api_key or "",
             capsolver_key=capsolver_api_key or "",
+            brightdata_key=brightdata_api_key or "",
         )
     return _solver_instance
