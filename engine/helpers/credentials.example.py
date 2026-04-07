@@ -20,3 +20,6 @@ watchguard_password = ""
 
 # Google Safe Browsing API key
 google_safebrowsing_api_key = ""
+
+# CapSolver API key (fallback captcha solver)
+capsolver_api_key = ""

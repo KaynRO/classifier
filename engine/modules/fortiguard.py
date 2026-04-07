@@ -3,6 +3,7 @@ from typing import Optional
 from helpers.constants import *
 from helpers.utils import *
 from helpers.logger import *
+from helpers.captcha_dual_solver import get_dual_solver
 
 
 class FortiGuard:
@@ -65,56 +66,83 @@ class FortiGuard:
             except Exception as e:
                 self.logger.warning(f"[!] ALTCHA handling failed: {e}")
 
-            # Handle secondary image captcha ("Please enter the code")
-            try:
-                code_input = driver.find_elements("css selector", "input[name='code']")
-                if code_input and code_input[0].is_displayed():
-                    self.logger.info("[*] Secondary image captcha detected — solving with 2Captcha...")
-                    # Find the captcha image
-                    captcha_img = driver.find_elements("css selector", "#captcha_img, img[src*='captcha']")
-                    if captcha_img:
-                        img_src = captcha_img[0].get_attribute("src")
-                        if img_src:
-                            solver = get_captcha_solver()
-                            if solver and solver.solver:
-                                # Download and solve the image captcha
-                                import base64
-                                img_data = driver.execute_script("""
-                                    var img = arguments[0];
-                                    var canvas = document.createElement('canvas');
-                                    canvas.width = img.naturalWidth;
-                                    canvas.height = img.naturalHeight;
-                                    canvas.getContext('2d').drawImage(img, 0, 0);
-                                    return canvas.toDataURL('image/png').split(',')[1];
-                                """, captcha_img[0])
-                                if img_data:
-                                    result = solver.solver.normal(img_data, numeric=0, minLen=4, maxLen=8)
-                                    code = result.get("code") if isinstance(result, dict) else str(result)
-                                    code_input[0].clear()
-                                    code_input[0].send_keys(code)
-                                    self.logger.info(f"[*] Entered captcha code: {code}")
-                                    time.sleep(1)
-                    else:
-                        self.logger.warning("[!] Could not find captcha image")
-            except Exception as e:
-                self.logger.warning(f"[!] Image captcha handling failed: {e}")
-
-            # Click submit via JS (two overlapping buttons with same ID)
+            # First submit — triggers the image captcha to appear
             try:
                 driver.execute_script("""
                     var btns = document.querySelectorAll('#webfilter_search_form_submit');
                     if (btns.length > 0) btns[btns.length - 1].click();
                 """)
-                self.logger.info("[*] Clicked submit via JS")
+                self.logger.info("[*] First submit clicked — checking for image captcha...")
             except Exception:
                 press_key(driver, url_input, "Enter")
-                self.logger.info("[*] Pressed Enter to submit")
+
+            time.sleep(4)
+
+            # Check if image captcha appeared after submit
+            body_after_submit = get_text(driver, "body")
+            code_input = driver.find_elements("css selector", "input[name='code'], input#captcha_code")
+            code_visible = any(c.is_displayed() for c in code_input) if code_input else False
+
+            if "enter the code" in body_after_submit.lower() or code_visible:
+                self.logger.info("[*] Image captcha appeared — solving...")
+
+                # Screenshot the captcha widget element (it's not a regular <img>)
+                import base64
+                widget = driver.find_elements("css selector", "#captcha_widget, .captcha-widget")
+                img_data = None
+                if widget and widget[0].is_displayed():
+                    try:
+                        png_bytes = widget[0].screenshot_as_png
+                        img_data = base64.b64encode(png_bytes).decode()
+                        self.logger.info(f"[*] Captured captcha widget screenshot ({len(img_data)} b64 bytes)")
+                    except Exception as e:
+                        self.logger.warning(f"[!] Widget screenshot failed: {e}")
+
+                if img_data:
+                    solver = get_dual_solver()
+                    code = solver.solve_image_captcha(img_data)
+                    if code:
+                        # Make the code input visible and enter the code
+                        driver.execute_script("""
+                            var el = document.querySelector('input[name="code"], input#captcha_code');
+                            if (el) { el.type = 'text'; el.style.display = 'block'; }
+                        """)
+                        time.sleep(0.5)
+                        code_els = driver.find_elements("css selector", "input[name='code'], input#captcha_code")
+                        for c in code_els:
+                            try:
+                                c.clear()
+                                driver.execute_script("arguments[0].value = arguments[1]", c, code)
+                                self.logger.info(f"[*] Entered captcha code: {code}")
+                                break
+                            except Exception:
+                                continue
+                        time.sleep(1)
+
+                        # Submit again with the code
+                        driver.execute_script("""
+                            var btns = document.querySelectorAll('#webfilter_search_form_submit');
+                            if (btns.length > 0) btns[btns.length - 1].click();
+                        """)
+                        self.logger.info("[*] Second submit with captcha code")
+                    else:
+                        self.logger.warning("[!] Image captcha could not be solved")
+                else:
+                    self.logger.warning("[!] Could not capture captcha widget")
+            else:
+                self.logger.info("[*] No image captcha detected — checking for results...")
 
             # Wait for results
             self.logger.info("[*] Waiting for results...")
             time.sleep(5)
 
             body_text = get_text(driver, "body")
+
+            # Debug: log lines containing "category" or "rated"
+            for line in body_text.split("\n"):
+                if "category" in line.lower() or "rated" in line.lower() or "risk" in line.lower():
+                    self.logger.debug(f"[*] Page line: {line.strip()[:120]}")
+
             category = self.extract_category(body_text)
 
             if not return_reputation_only:
@@ -140,24 +168,25 @@ class FortiGuard:
                 stripped = line.strip()
                 lower = stripped.lower()
 
-                # Look for "Category:" label
-                if "category:" in lower:
-                    parts = stripped.split(":", 1)
-                    if len(parts) > 1 and parts[1].strip():
-                        val = parts[1].strip()
-                        if val.lower() not in ["", "category"]:
-                            category = val
-                            break
+                # Match "Category: <value>" anywhere in the text
+                if lower.startswith("category:") or lower.startswith("category :"):
+                    val = stripped.split(":", 1)[1].strip()
+                    if val and val.lower() not in ["", "category"]:
+                        category = val
+                        break
                     if i + 1 < len(lines) and lines[i + 1].strip():
                         category = lines[i + 1].strip()
                         break
 
-                # FortiGuard result format sometimes shows category directly
-                if "web rating" in lower or "web filter" in lower:
-                    parts = stripped.split(":", 1)
-                    if len(parts) > 1 and parts[1].strip():
-                        category = parts[1].strip()
-                        break
+                # Also check for "Newly Registered Domain" or similar in history
+                if "newly registered" in lower:
+                    category = "Newly Registered Domain"
+                    break
+                if "risk level:" in lower:
+                    val = stripped.split(":", 1)[1].strip()
+                    if val and category == "Not Found":
+                        # Use risk level as supplementary info
+                        self.logger.info(f"[*] Risk Level: {val}")
 
         except Exception:
             pass

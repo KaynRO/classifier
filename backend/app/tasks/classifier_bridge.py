@@ -29,11 +29,18 @@ def _setup_credentials():
             "PALOALTO_PASSWORD": "paloalto_password",
             "GMAIL_EMAIL": "gmail_email",
             "GMAIL_APP_PASSWORD": "gmail_app_password",
+            "CAPSOLVER_API_KEY": "capsolver_api_key",
         }
         for env_key, attr_name in env_map.items():
             val = os.environ.get(env_key)
             if val:
                 setattr(creds, attr_name, val)
+        # Reset dual solver singleton so it picks up new keys
+        try:
+            import helpers.captcha_dual_solver as ds
+            ds._solver_instance = None
+        except ImportError:
+            pass
     except ImportError:
         pass
 

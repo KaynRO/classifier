@@ -2,12 +2,14 @@ import traceback, time
 from typing import Optional
 from helpers.utils import *
 from helpers.logger import *
+from helpers.captcha_dual_solver import get_dual_solver
 
 
 class Intelixsophos:
     def __init__(self) -> None:
         self.logger = Logger(__name__)
         self.url = "https://intelix.sophos.com/url"
+        self.hcaptcha_sitekey = "2fe029e7-318b-44ee-8ae0-ced519d390da"
 
 
     def check(self, driver, target_url: str, return_reputation_only: bool = False) -> Optional[str]:
@@ -50,42 +52,52 @@ class Intelixsophos:
 
         time.sleep(1)
 
-        # Solve hCaptcha using 2Captcha
-        self.logger.info("[*] Attempting to solve hCaptcha via 2Captcha...")
-        captcha_solved = False
-        try:
-            solver = get_captcha_solver()
-            if solver and solver.solver:
-                result = solver.solver.recaptcha(
-                    sitekey="2fe029e7-318b-44ee-8ae0-ced519d390da",
-                    url=self.url,
-                )
-                token = result.get("code") if isinstance(result, dict) else str(result)
-                self.logger.info(f"[*] Captcha token received ({len(token)} chars)")
+        # Solve hCaptcha using dual solver (2Captcha → CapSolver fallback)
+        self.logger.info("[*] Solving hCaptcha...")
+        solver = get_dual_solver()
+        token = solver.solve_hcaptcha(self.hcaptcha_sitekey, self.url)
 
-                # Inject token into both h-captcha-response and g-recaptcha-response (compat mode)
-                driver.execute_script(f"""
-                    document.querySelectorAll('textarea[name="h-captcha-response"], textarea[name="g-recaptcha-response"]').forEach(function(el) {{
-                        el.value = "{token}";
-                        el.innerHTML = "{token}";
-                    }});
-                """)
-                time.sleep(2)
-
-                # Check if button enabled
-                btns = driver.find_elements("css selector", "button.submit-button")
-                if btns and btns[0].is_enabled():
-                    captcha_solved = True
-                    self.logger.success("[+] hCaptcha solved — button enabled")
-                else:
-                    self.logger.warning("[!] Token injected but button still disabled")
-        except Exception as e:
-            self.logger.warning(f"[!] 2Captcha hCaptcha failed: {e}")
-
-        if not captcha_solved:
-            self.logger.error("[-] hCaptcha could not be solved — 2Captcha may not support hCaptcha on current plan")
-            self.logger.info("[*] Tip: Upgrade 2Captcha plan to include hCaptcha support")
+        if not token:
+            self.logger.error("[-] hCaptcha could not be solved by any provider")
             return "hCaptcha Unsolved"
+
+        # Inject token into the page
+        self.logger.info(f"[*] Injecting hCaptcha token ({len(token)} chars)...")
+        driver.execute_script("""
+            // Inject into h-captcha-response and g-recaptcha-response (compat mode)
+            document.querySelectorAll(
+                'textarea[name="h-captcha-response"], textarea[name="g-recaptcha-response"]'
+            ).forEach(function(el) {
+                el.value = arguments[0];
+                el.innerHTML = arguments[0];
+                el.dispatchEvent(new Event('input', {bubbles: true}));
+                el.dispatchEvent(new Event('change', {bubbles: true}));
+            });
+
+            // Try triggering hcaptcha verified callback
+            if (typeof hcaptcha !== 'undefined') {
+                try { hcaptcha.execute(); } catch(e) {}
+            }
+        """, token)
+        time.sleep(3)
+
+        # Check if button enabled
+        btns = driver.find_elements("css selector", "button.submit-button")
+        if btns and btns[0].is_enabled():
+            self.logger.success("[+] hCaptcha token accepted — button enabled")
+        else:
+            # Try force-enabling and submitting
+            self.logger.warning("[!] Button still disabled — trying force submit")
+            driver.execute_script("""
+                var btn = document.querySelector('button.submit-button');
+                if (btn) { btn.disabled = false; btn.classList.remove('p-disabled'); btn.click(); }
+            """)
+            time.sleep(15)
+            body_text = get_text(driver, "body")
+            cat = self._extract_category(body_text)
+            if cat:
+                return cat
+            return "hCaptcha Token Rejected"
 
         # Click Analyze
         try:
@@ -93,39 +105,37 @@ class Intelixsophos:
             self.logger.info("[*] Clicked Analyze")
         except Exception:
             driver.execute_script("document.querySelector('button.submit-button')?.click()")
-            self.logger.info("[*] Clicked Analyze via JS")
 
         # Wait for results
         self.logger.info("[*] Waiting for analysis results...")
         time.sleep(15)
 
         body_text = get_text(driver, "body")
-        cat = self.extract_field(body_text, ["category", "categorization"])
+        cat = self._extract_category(body_text)
 
-        if cat and cat.lower() not in ["", "category"]:
+        if cat:
             self.logger.success(f"[+] Category: {cat}")
         else:
             cat = "Not Found"
-            self.logger.warning("[-] Could not extract category")
+            self.logger.warning("[-] Could not extract category from results page")
 
         return cat
 
 
-    def extract_field(self, body_text: str, labels: list) -> Optional[str]:
-        lines = body_text.split("\n")
+    def _extract_category(self, body_text: str) -> Optional[str]:
         skip = ["find out what", "submit your file", "machine learning", "decades of threat"]
-        for i, line in enumerate(lines):
+        for i, line in enumerate(body_text.split("\n")):
             stripped = line.strip().lower()
             if any(p in stripped for p in skip):
                 continue
-            for label in labels:
+            for label in ["category", "categorization"]:
                 if label in stripped:
                     if ":" in line:
                         val = line.split(":", 1)[1].strip()
                         if val and len(val) < 100:
                             return val
-                    if i + 1 < len(lines):
-                        next_line = lines[i + 1].strip()
+                    if i + 1 < len(body_text.split("\n")):
+                        next_line = body_text.split("\n")[i + 1].strip()
                         if next_line and len(next_line) < 100 and not any(p in next_line.lower() for p in skip):
                             return next_line
         return None
