@@ -123,16 +123,15 @@ def run_vendor_check(self, job_id: str, domain_id: str, domain_name: str,
     class CleanFormatter(logging.Formatter):
         ANSI_RE = re.compile(r'\x1B\[[0-9;]*m')
         def format(self, record):
-            msg = super().format(record)
-            return self.ANSI_RE.sub('', msg)
+            return self.ANSI_RE.sub('', super().format(record))
 
     log_handler = logging.StreamHandler(log_capture)
     log_handler.setLevel(logging.DEBUG)
     log_handler.setFormatter(CleanFormatter("%(asctime)s [%(levelname)s] %(message)s", "%H:%M:%S"))
 
-    # Only attach to classifier module loggers, not root
+    # Only attach to our own classifier loggers — NOT seleniumbase/selenium/urllib3/root
     classifier_loggers = []
-    for name in list(logging.Logger.manager.loggerDict.keys()) + [vendor_name, f"modules.{vendor_name}", "helpers"]:
+    for name in [f"modules.{vendor_name}", "helpers.captcha_dual_solver"]:
         lg = logging.getLogger(name)
         lg.addHandler(log_handler)
         classifier_loggers.append(lg)
