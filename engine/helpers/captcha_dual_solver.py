@@ -233,7 +233,7 @@ class DualCaptchaSolver:
     # Fetches a page through BrightData proxy with CAPTCHAs auto-solved
     # Returns the full page HTML, not just a token
 
-    def fetch_page_via_brightdata(self, url: str, zone: str = "captcha_solver", timeout: int = 60) -> str | None:
+    def fetch_page_via_brightdata(self, url: str, zone: str = "classifier", timeout: int = 60) -> str | None:
         """Fetch a URL through BrightData Web Unlocker with auto CAPTCHA solving.
         Returns the page HTML content, or None on failure.
 
