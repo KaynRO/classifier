@@ -30,6 +30,7 @@ def _setup_credentials():
             "GMAIL_EMAIL": "gmail_email",
             "GMAIL_APP_PASSWORD": "gmail_app_password",
             "CAPSOLVER_API_KEY": "capsolver_api_key",
+            "BRIGHTDATA_API_KEY": "brightdata_api_key",
         }
         for env_key, attr_name in env_map.items():
             val = os.environ.get(env_key)
