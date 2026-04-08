@@ -6,3 +6,4 @@ Requests
 seleniumbase>=4.46.0
 2captcha-python
 dnspython
+pyotp

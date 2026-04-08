@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils'
-import { Loader2 } from 'lucide-react'
+import { Loader2, X } from 'lucide-react'
 
 const styles: Record<string, string> = {
   clean: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
@@ -28,12 +28,29 @@ const labels: Record<string, string> = {
   cancelled: 'Cancelled',
 }
 
-export default function StatusBadge({ status, loading }: { status: string | null | undefined; loading?: boolean }) {
-  if (loading) {
+interface Props {
+  status: string | null | undefined
+  loading?: boolean
+  onCancel?: () => void
+}
+
+export default function StatusBadge({ status, loading, onCancel }: Props) {
+  const isRunning = loading || status === 'running' || status === 'pending'
+
+  if (isRunning) {
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-sky-500/20 text-sky-400 border border-sky-500/30">
         <Loader2 size={10} className="animate-spin" />
-        Checking
+        Running
+        {onCancel && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onCancel() }}
+            className="ml-0.5 -mr-0.5 hover:bg-sky-500/30 rounded-full p-0.5 transition-colors"
+            title="Cancel"
+          >
+            <X size={10} />
+          </button>
+        )}
       </span>
     )
   }
@@ -44,7 +61,6 @@ export default function StatusBadge({ status, loading }: { status: string | null
       'inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium border',
       styles[status] || styles.pending
     )}>
-      {status === 'running' && <Loader2 size={10} className="animate-spin mr-1" />}
       {label}
     </span>
   )

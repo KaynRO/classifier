@@ -1,15 +1,114 @@
-import traceback, time, base64, requests, json
+import traceback, time, pyotp
 from typing import Optional
-from helpers.constants import *
+from urllib.parse import quote
 from helpers.utils import *
 from helpers.logger import *
+from helpers import credentials
+
+
+LOGIN_URL = "https://usercenter.checkpoint.com/ucapps/urlcat/"
+APP_URL = "https://usercenter.checkpoint.com/ucapps/urlcat/"
+URL_DETAILS_URL = "https://usercenter.checkpoint.com/ucapps/urlcat/url-details?q={domain}"
+
+
+def react_set_value(driver, selector: str, value: str) -> None:
+    # React's synthetic events ignore raw element.value assignments, so we have
+    # to reach through the native prototype setter and then fire an input event.
+    script = (
+        "var el = document.querySelector(arguments[0]);"
+        "if (!el) return false;"
+        "var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;"
+        "setter.call(el, arguments[1]);"
+        "el.dispatchEvent(new Event('input', {bubbles:true}));"
+        "el.dispatchEvent(new Event('change', {bubbles:true}));"
+        "return true;"
+    )
+    driver.execute_script(script, selector, value)
+
+
+def get_checkpoint_totp() -> Optional[str]:
+    secret = (getattr(credentials, "checkpoint_totp_secret", "") or "").strip()
+    if not secret:
+        return None
+    try:
+        return pyotp.TOTP(secret).now()
+    except Exception:
+        return None
 
 
 class CheckPoint:
     def __init__(self) -> None:
         self.logger = Logger(__name__)
-        self.url = "https://usercenter.checkpoint.com/ucapps/urlcat/"
-        self.api_url = "https://usercenter.checkpoint.com/api/url-cat-mms/api/query"
+        self.username = (getattr(credentials, "checkpoint_username", "") or "").strip()
+        self.password = (getattr(credentials, "checkpoint_password", "") or "").strip()
+        self.url = APP_URL
+
+
+    def current_totp(self) -> Optional[str]:
+        return get_checkpoint_totp()
+
+
+    def login(self, driver) -> bool:
+        if not self.username or not self.password:
+            self.logger.warning("[!] No CheckPoint credentials configured")
+            return False
+
+        self.logger.info("[*] Logging in to CheckPoint UserCenter (Auth0)...")
+        driver.uc_open_with_reconnect(LOGIN_URL, reconnect_time=6)
+        time.sleep(8)
+
+        if "usercenter.checkpoint.com/ucapps/urlcat" in (driver.current_url or "") and "login.checkpoint.com" not in (driver.current_url or ""):
+            self.logger.info("[*] Already authenticated")
+            return True
+
+        try:
+            wait_for_selector(driver, "#username", state="visible", timeout=15000)
+        except Exception:
+            self.logger.error("[-] Auth0 login page did not load")
+            return False
+
+        react_set_value(driver, "#username", self.username)
+        time.sleep(1)
+        driver.click("button[type='submit']")
+        self.logger.debug("[*] Submitted username")
+
+        try:
+            wait_for_selector(driver, "#password", state="visible", timeout=15000)
+        except Exception:
+            self.logger.error("[-] Password field did not appear")
+            return False
+
+        react_set_value(driver, "#password", self.password)
+        time.sleep(1)
+        driver.click("button[type='submit']")
+        self.logger.debug("[*] Submitted password")
+
+        try:
+            wait_for_selector(driver, "#code", state="visible", timeout=15000)
+        except Exception:
+            if "usercenter.checkpoint.com/ucapps/urlcat" in (driver.current_url or ""):
+                self.logger.info("[*] Logged in without MFA prompt")
+                return True
+            self.logger.error("[-] MFA prompt did not appear")
+            return False
+
+        code = get_checkpoint_totp()
+        if not code:
+            self.logger.error("[-] No TOTP secret configured — cannot pass MFA")
+            return False
+
+        react_set_value(driver, "#code", code)
+        time.sleep(1)
+        driver.click("button[type='submit']")
+        self.logger.debug(f"[*] Submitted TOTP code")
+
+        try:
+            wait_for_url(driver, lambda u: "usercenter.checkpoint.com/ucapps/urlcat" in (u or "") and "login.checkpoint.com" not in (u or ""), timeout=25000)
+            self.logger.info("[*] Login successful")
+            return True
+        except Exception:
+            self.logger.error(f"[-] Login did not complete, stuck at: {driver.current_url}")
+            return False
 
 
     def check(self, driver, target_url: str, return_reputation_only: bool = False) -> Optional[str]:
@@ -19,126 +118,43 @@ class CheckPoint:
         try:
             clean_domain = target_url.replace("https://", "").replace("http://", "").strip("/")
 
-            # Try API-based approach first (no reCAPTCHA needed for queries)
-            category = self.check_via_api(clean_domain)
+            if not self.login(driver):
+                return "Login Failed"
 
-            # Fallback to browser if API fails
-            if category == "NOT FOUND":
-                category = self.check_via_browser(driver, clean_domain)
+            details_url = URL_DETAILS_URL.format(domain=quote(clean_domain, safe=""))
+            self.logger.info(f"[*] Fetching category for {clean_domain}")
+            driver.get(details_url)
+            time.sleep(8)
 
-            if not return_reputation_only:
-                self.logger.success(f"[+] Category: {category.upper()}")
-            else:
-                category = None
+            body_text = driver.execute_script("return document.body.innerText || ''") or ""
+            category = self.extract_category(body_text)
 
+            if return_reputation_only:
+                return None
+
+            self.logger.success(f"[+] Category: {category}")
             return category
 
         except Exception as e:
-            self.logger.error(f"[-] Check Point check failed: {str(e)}")
+            self.logger.error(f"[-] Check Point check failed: {e}")
             self.logger.error(traceback.format_exc())
-            raise e
-
-
-    def check_via_api(self, domain: str) -> str:
-        try:
-            encoded = base64.b64encode(domain.encode()).decode()
-            response = requests.post(
-                self.api_url,
-                headers={"Content-Type": "application/json"},
-                json={"urlEncoded": encoded},
-                timeout=15
-            )
-
-            if response.status_code != 200:
-                self.logger.debug(f"[*] API returned status {response.status_code}")
-                return "NOT FOUND"
-
-            data = response.json()
-            categories = data.get("categories", [])
-            if categories:
-                return ", ".join(categories)
-
-            return "NOT FOUND"
-
-        except Exception as e:
-            self.logger.debug(f"[*] API approach failed: {e}")
-            return "NOT FOUND"
-
-
-    def check_via_browser(self, driver, domain: str) -> str:
-        try:
-            self.logger.info("[*] Trying browser-based approach")
-            driver.uc_open_with_reconnect(self.url, reconnect_time=5)
-            time.sleep(5)
-
-            # Try to find the input field — the SPA renders a React app
-            input_selectors = [
-                "input[type='text']",
-                "input[placeholder*='URL']",
-                "input[placeholder*='url']",
-                "input[aria-label*='URL']",
-                "input"
-            ]
-
-            for selector in input_selectors:
-                try:
-                    if count_elements(driver, selector) > 0:
-                        wait_and_input_on_element(driver, selector, domain)
-
-                        # Try submit
-                        submit_selectors = [
-                            "button[type='submit']",
-                            "button:has-text('Look')",
-                            "button:has-text('Submit')",
-                            "button:has-text('Check')"
-                        ]
-                        for btn in submit_selectors:
-                            try:
-                                if count_elements(driver, btn) > 0:
-                                    wait_and_click_on_element(driver, btn)
-                                    break
-                            except Exception:
-                                continue
-                        else:
-                            press_key(driver, selector, "Enter")
-
-                        time.sleep(5)
-                        break
-                except Exception:
-                    continue
-
-            body_text = get_text(driver, "body")
-            return self.extract_category(body_text)
-
-        except Exception as e:
-            self.logger.debug(f"[*] Browser approach failed: {e}")
-            return "NOT FOUND"
+            return "Error"
 
 
     def extract_category(self, body_text: str) -> str:
-        category = "NOT FOUND"
-
-        try:
-            lines = body_text.split("\n")
-
-            for i, line in enumerate(lines):
-                line_stripped = line.strip()
-
-                if "category" in line_stripped.lower() and ":" in line_stripped:
-                    parts = line_stripped.split(":", 1)
-                    if len(parts) > 1 and parts[1].strip():
-                        val = parts[1].strip()
-                        if val.lower() not in ["", "n/a", "category"]:
-                            category = val
-                            break
-
-                if "classification" in line_stripped.lower() and ":" in line_stripped:
-                    parts = line_stripped.split(":", 1)
-                    if len(parts) > 1 and parts[1].strip():
-                        category = parts[1].strip()
-                        break
-
-        except Exception:
-            pass
-
-        return category
+        # Page format: "Current Categories: <cat1>, <cat2>, <risk level>"
+        for raw in body_text.split("\n"):
+            line = raw.strip()
+            lower = line.lower()
+            if lower.startswith("current categories:") or lower.startswith("current categories :"):
+                val = line.split(":", 1)[1].strip()
+                if val:
+                    return val
+        for raw in body_text.split("\n"):
+            line = raw.strip()
+            lower = line.lower()
+            if "category" in lower and ":" in line:
+                val = line.split(":", 1)[1].strip()
+                if val and val.lower() not in ("", "n/a", "category"):
+                    return val
+        return "NOT FOUND"

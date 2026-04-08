@@ -54,6 +54,8 @@ export const jobsApi = {
   bulkCheck: (vendor?: string) => api.post('/jobs/bulk-check', null, { params: { vendor } }),
   get: (id: string) => api.get(`/jobs/${id}`),
   list: (params?: Record<string, any>) => api.get('/jobs', { params }),
+  cancel: (id: string) => api.post(`/jobs/${id}/cancel`),
+  cancelVendor: (domain_id: string, vendor: string) => api.post('/jobs/cancel-vendor', null, { params: { domain_id, vendor } }),
 }
 
 // --- Vendors ---

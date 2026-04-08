@@ -47,6 +47,28 @@ def update_job_progress(db: Session, job_id: str, vendor_name: str, status: str)
     db.commit()
 
 
+def sweep_orphan_running(db: Session, domain_id: str, vendor_id: int, action_type: str) -> None:
+    # Preflight: mark any prior 'running' row as failed so a SIGKILLed task can't
+    # leave a permanent spinner in the UI.
+    from sqlalchemy import update as sql_update
+    now = datetime.now(timezone.utc)
+    db.execute(
+        sql_update(CheckResult)
+        .where(
+            CheckResult.domain_id == UUID(domain_id),
+            CheckResult.vendor_id == vendor_id,
+            CheckResult.action_type == action_type,
+            CheckResult.status.in_(["running", "pending"]),
+        )
+        .values(
+            status="failed",
+            error_message="Auto-failed: previous task was killed before completing",
+            completed_at=now,
+        )
+    )
+    db.commit()
+
+
 def save_check_result(
     db: Session, domain_id: str, vendor_id: int, action_type: str,
     status: str, category: str = None, reputation: str = None,
@@ -137,6 +159,9 @@ def run_vendor_check(self, job_id: str, domain_id: str, domain_name: str,
         classifier_loggers.append(lg)
 
     try:
+        # Preflight: clean up any orphan 'running' row left by a previously killed task
+        sweep_orphan_running(db, domain_id, vendor_id, action_type)
+
         update_job_progress(db, job_id, vendor_name, "running")
         publish_update(job_id, vendor_name, "running")
 
@@ -192,17 +217,65 @@ def run_vendor_check(self, job_id: str, domain_id: str, domain_name: str,
         db.close()
 
 
+def finalize_orphan_rows(db: Session, job_id: str) -> None:
+    from sqlalchemy import update as sql_update
+    job = db.get(Job, UUID(job_id))
+    if not job:
+        return
+    now = datetime.now(timezone.utc)
+    db.execute(
+        sql_update(CheckResult)
+        .where(
+            CheckResult.domain_id == job.domain_id,
+            CheckResult.action_type == job.action_type,
+            CheckResult.status.in_(["running", "pending"]),
+        )
+        .values(
+            status="failed",
+            error_message="Auto-failed: task was killed before completing",
+            completed_at=now,
+        )
+    )
+    db.commit()
+
+
 @celery_app.task(name="app.tasks.vendor_tasks.finalize_job")
-def finalize_job(results, job_id: str):
-    """Chord callback: marks the parent job as completed after all vendor checks finish."""
+def finalize_job(results, job_id: str) -> None:
     db = SessionLocal()
     try:
+        finalize_orphan_rows(db, job_id)
         job = db.get(Job, UUID(job_id))
         if job:
             job.status = "completed"
             job.completed_at = datetime.now(timezone.utc)
             db.commit()
         publish_update(job_id, "__job__", "completed")
+    except Exception:
+        pass
+    finally:
+        db.close()
+
+
+@celery_app.task(name="app.tasks.vendor_tasks.finalize_job_error", bind=True)
+def finalize_job_error(self, *args, **kwargs) -> None:
+    # job_id is the last positional arg (bound via .s(job_id))
+    job_id = kwargs.get("job_id") or (args[-1] if args else None)
+    if not job_id:
+        return
+    exc_str = ""
+    for a in args:
+        if isinstance(a, BaseException):
+            exc_str = str(a)
+            break
+    db = SessionLocal()
+    try:
+        finalize_orphan_rows(db, job_id)
+        job = db.get(Job, UUID(job_id))
+        if job:
+            job.status = "failed"
+            job.completed_at = datetime.now(timezone.utc)
+            db.commit()
+        publish_update(job_id, "__job__", "failed", error=exc_str or "task killed")
     except Exception:
         pass
     finally:
@@ -247,7 +320,11 @@ def run_domain_job(self, job_id: str, domain_id: str, domain_name: str,
             )
 
         if tasks:
-            chord(tasks)(finalize_job.s(job_id))
+            # Wire both normal and error callbacks so the job always finalizes,
+            # even if a child task is SIGKILLed by the hard time limit.
+            callback = finalize_job.s(job_id)
+            callback.set(link_error=finalize_job_error.s(job_id))
+            chord(tasks)(callback)
         else:
             # No vendors — mark as completed immediately
             job = db.get(Job, UUID(job_id))
@@ -264,6 +341,8 @@ def run_domain_job(self, job_id: str, domain_id: str, domain_name: str,
             db.commit()
 
     except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"run_domain_job failed: {e}", exc_info=True)
         job = db.get(Job, UUID(job_id))
         if job:
             job.status = "failed"

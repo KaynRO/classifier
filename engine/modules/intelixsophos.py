@@ -87,9 +87,9 @@ class Intelixsophos:
                     return None
                 time.sleep(2)
 
-                # Priority 1 & 2: Try cloud solvers (2Captcha → CapMonster → CapSolver)
+                # Cloud solver chain: 2Captcha → CapSolver
                 btn_enabled = False
-                self.logger.info("[*] Trying cloud hCaptcha solvers (2Captcha → CapMonster → CapSolver)...")
+                self.logger.info("[*] Trying cloud hCaptcha solvers (2Captcha → CapSolver)...")
                 solver = get_dual_solver()
                 token = solver.solve_hcaptcha_chain(HCAPTCHA_SITEKEY, self.url)
                 if token:

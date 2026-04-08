@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
-from app.models import Job, Domain, Vendor, User
+from app.models import Job, Domain, Vendor, User, CheckResult, CheckHistory
 from app.schemas import JobCreate, JobResponse, PaginatedResponse
 from app.auth import get_current_user, require_admin
 from app.tasks.celery_app import celery_app
@@ -102,6 +102,118 @@ async def get_job(job_id: UUID, db: AsyncSession = Depends(get_db), user: User =
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     return JobResponse.model_validate(job)
+
+
+async def restore_previous_state(db: AsyncSession, cr: CheckResult) -> None:
+    # Restore last known non-running/cancelled state from check_history; if none
+    # exists, delete the row so the UI shows "never checked".
+    prior = await db.execute(
+        select(CheckHistory)
+        .where(
+            CheckHistory.domain_id == cr.domain_id,
+            CheckHistory.vendor_id == cr.vendor_id,
+            CheckHistory.action_type == cr.action_type,
+            CheckHistory.status.not_in(["running", "pending", "cancelled"]),
+        )
+        .order_by(CheckHistory.completed_at.desc().nullslast(), CheckHistory.created_at.desc())
+        .limit(1)
+    )
+    prev = prior.scalar_one_or_none()
+    if prev is None:
+        await db.delete(cr)
+        return
+    cr.status = prev.status
+    cr.category = prev.category
+    cr.reputation = prev.reputation
+    cr.error_message = prev.error_message
+    cr.raw_response = prev.raw_response
+    cr.started_at = prev.started_at
+    cr.completed_at = prev.completed_at
+
+
+@router.post("/{job_id}/cancel", response_model=JobResponse)
+async def cancel_job(
+    job_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    result = await db.execute(select(Job).where(Job.id == job_id))
+    job = result.scalar_one_or_none()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    # Revoke the Celery task
+    if job.celery_task_id:
+        try:
+            celery_app.control.revoke(job.celery_task_id, terminate=True, signal="SIGTERM")
+        except Exception:
+            pass
+
+    # Restore each running check_result to its previous known state (from history)
+    running_cr = await db.execute(
+        select(CheckResult).where(
+            CheckResult.domain_id == job.domain_id,
+            CheckResult.status.in_(["running", "pending"]),
+        )
+    )
+    for cr in running_cr.scalars().all():
+        await restore_previous_state(db, cr)
+
+    job.status = "cancelled"
+    job.completed_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(job)
+    return JobResponse.model_validate(job)
+
+
+@router.post("/cancel-vendor")
+async def cancel_vendor_job(
+    domain_id: UUID,
+    vendor: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    vendor_result = await db.execute(select(Vendor).where(Vendor.name == vendor))
+    v = vendor_result.scalar_one_or_none()
+    if not v:
+        raise HTTPException(status_code=404, detail=f"Vendor '{vendor}' not found")
+
+    # Find any running/pending check_result rows for this vendor (check + submit + reputation)
+    cr_result = await db.execute(
+        select(CheckResult).where(
+            CheckResult.domain_id == domain_id,
+            CheckResult.vendor_id == v.id,
+            CheckResult.status.in_(["running", "pending"]),
+        )
+    )
+    crs = cr_result.scalars().all()
+    if not crs:
+        return {"detail": "No running task for this vendor"}
+
+    # Find the parent job(s) and revoke the Celery task
+    jobs_result = await db.execute(
+        select(Job).where(
+            Job.domain_id == domain_id,
+            Job.status.in_(["running", "pending"]),
+        ).order_by(Job.started_at.desc())
+    )
+    for j in jobs_result.scalars().all():
+        progress = j.progress or {}
+        if vendor in progress:
+            if j.celery_task_id:
+                try:
+                    celery_app.control.revoke(j.celery_task_id, terminate=True, signal="SIGTERM")
+                except Exception:
+                    pass
+            j.status = "cancelled"
+            j.completed_at = datetime.now(timezone.utc)
+
+    # Restore each running check_result to its previous known state
+    for cr in crs:
+        await restore_previous_state(db, cr)
+
+    await db.commit()
+    return {"detail": f"Cancelled running task for {vendor}"}
 
 
 @router.get("", response_model=PaginatedResponse)
