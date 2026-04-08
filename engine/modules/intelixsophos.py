@@ -179,8 +179,88 @@ class Intelixsophos:
         return None
 
     def submit(self, driver, url: str, email: str, category: str) -> None:
-        """Sophos Intelix doesn't have a category submission form — it's an analysis tool.
-        The /disagreement endpoint exists but requires authentication."""
-        self.logger.warning("[!] Sophos Intelix does not support anonymous category submission")
-        self.logger.warning("[!] The disagreement feature requires an authenticated Sophos ID session")
-        raise NotImplementedError("Sophos Intelix does not support anonymous category submission")
+        """Submit URL recategorization request via Sophos support form.
+        Uses https://support.sophos.com/support/s/filesubmission (Web Address tab).
+        Salesforce Lightning form — requires Playwright."""
+        self.logger.info(f" Targeting intelixsophos (submit) ".center(60, "="))
+
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError:
+            raise Exception("playwright not installed")
+
+        submit_url = "https://support.sophos.com/support/s/filesubmission?language=en_US"
+        clean_url = url if url.startswith(("http://", "https://")) else f"https://{url}"
+        reason = f"Please recategorize {clean_url} as {category}. " + construct_reason_for_review_comment(clean_url, category, simple_message=True)
+
+        try:
+            with sync_playwright() as p:
+                browser = p.chromium.connect_over_cdp(SBR_WS)
+                page = browser.new_page()
+                page.set_default_timeout(60000)
+
+                self.logger.info(f"[*] Navigating to {submit_url}")
+                page.goto(submit_url, wait_until="domcontentloaded", timeout=60000)
+                time.sleep(8)  # Wait for Lightning to hydrate
+
+                # Dismiss OneTrust cookie banner
+                try:
+                    page.click("#accept-recommended-btn-handler", timeout=3000)
+                    self.logger.info("[*] Dismissed cookie banner")
+                    time.sleep(1)
+                except Exception:
+                    pass
+
+                # Click "Web Address (URL)" tab
+                try:
+                    page.get_by_text("Web Address (URL)", exact=False).first.click()
+                    self.logger.info("[*] Clicked Web Address (URL) tab")
+                    time.sleep(3)
+                except Exception as e:
+                    self.logger.warning(f"[!] Could not click URL tab: {e}")
+
+                # Fill the form via labels (shadow DOM — must use get_by_label)
+                try:
+                    page.get_by_label("Web Address (URL)").fill(clean_url)
+                    self.logger.info(f"[*] Entered URL: {clean_url}")
+
+                    page.get_by_label("First Name").fill("URL")
+                    page.get_by_label("Last Name").fill("Classifier")
+                    page.get_by_label("Email Address").fill(email or "admin@example.com")
+                    self.logger.info(f"[*] Entered contact details")
+
+                    # Product/Services dropdown — select "Sophos Web Appliance"
+                    try:
+                        page.click('button[id*="combobox-button"]', timeout=5000)
+                        time.sleep(1)
+                        page.get_by_text("Sophos Web Appliance", exact=True).first.click()
+                        self.logger.info("[*] Selected product: Sophos Web Appliance")
+                        time.sleep(1)
+                    except Exception as e:
+                        self.logger.warning(f"[!] Product dropdown failed: {e}")
+
+                    # Comments
+                    page.get_by_label("Comments").fill(reason)
+                    self.logger.info(f"[*] Entered comments")
+
+                    # Click Submit URL button
+                    page.get_by_role("button", name="Submit URL").click()
+                    self.logger.info("[*] Clicked Submit URL")
+                    time.sleep(5)
+
+                    # Verify success
+                    body = page.inner_text("body").lower()
+                    if "success" in body or "thank" in body or "received" in body or "submitted" in body:
+                        self.logger.success("[+] Sophos submission accepted")
+                    else:
+                        self.logger.warning("[!] Success confirmation not detected — submission may still have worked")
+
+                except Exception as e:
+                    self.logger.error(f"[-] Form fill/submit failed: {e}")
+                    raise
+
+                browser.close()
+
+        except Exception as e:
+            self.logger.error(f"[-] Sophos submit failed: {e}")
+            raise

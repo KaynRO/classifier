@@ -448,7 +448,8 @@ categories_map = {
         "BrightCloud": "Business and Economy",
         "McAfee": "Business",
         "Talos": "Business and Industry",
-        "Zvelo": "Business"
+        "Zvelo": "Business",
+        "FortiGuard": "Business"
     },
     "Education": {
         "Bluecoat": "Education",
@@ -457,7 +458,8 @@ categories_map = {
         "BrightCloud": "Educational Institutions",
         "McAfee": "Education/Reference",
         "Talos": "Education",
-        "Zvelo": "Education"
+        "Zvelo": "Education",
+        "FortiGuard": "Education"
     },
     "Health": {
         "Bluecoat": "Health",
@@ -466,7 +468,8 @@ categories_map = {
         "BrightCloud": "Health and Medicine",
         "McAfee": "Health",
         "Talos": "Health and Medicine",
-        "Zvelo": "Health"
+        "Zvelo": "Health",
+        "FortiGuard": "Health and Wellness"
     },
     "News": {
         "Bluecoat": "News",
@@ -475,7 +478,8 @@ categories_map = {
         "BrightCloud": "News and Media",
         "McAfee": "General News",
         "Talos": "News",
-        "Zvelo": "News"
+        "Zvelo": "News",
+        "FortiGuard": "News and Media"
     },
     "Finance": {
         "Bluecoat": "Finance",
@@ -484,7 +488,8 @@ categories_map = {
         "BrightCloud": "Financial Services",
         "McAfee": "Finance",
         "Talos": "Finance",
-        "Zvelo": "Finance"
+        "Zvelo": "Finance",
+        "FortiGuard": "Finance and Banking"
     },
     "Internet": {
         "Bluecoat": "Technology/Internet",
@@ -493,7 +498,8 @@ categories_map = {
         "BrightCloud": "Computer and Internet Info",
         "McAfee": "Internet Services",
         "Talos": "Computers and Internet",
-        "Zvelo": "Technology"
+        "Zvelo": "Technology",
+        "FortiGuard": "Information Technology"
     }
 }
 
