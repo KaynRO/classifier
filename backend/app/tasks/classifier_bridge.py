@@ -31,6 +31,7 @@ def _setup_credentials():
             "GMAIL_APP_PASSWORD": "gmail_app_password",
             "CAPSOLVER_API_KEY": "capsolver_api_key",
             "BRIGHTDATA_API_KEY": "brightdata_api_key",
+            "BRIGHTDATA_BROWSER_WS": "brightdata_browser_ws",
         }
         for env_key, attr_name in env_map.items():
             val = os.environ.get(env_key)
@@ -78,6 +79,9 @@ def _get_vendor_class(vendor_name: str):
 
 # Vendors that are API-based (no browser needed)
 API_VENDORS = {"virustotal", "abusech", "abuseipdb", "googlesafebrowsing"}
+
+# Vendors that use Playwright + BrightData (no local driver needed)
+PLAYWRIGHT_VENDORS = {"intelixsophos", "fortiguard"}
 
 
 def run_vendor_operation(
@@ -139,6 +143,27 @@ def run_vendor_operation(
 
         result["status"] = "completed"
         return result
+
+    # Playwright + BrightData vendors (no local driver needed)
+    if vendor_name in PLAYWRIGHT_VENDORS:
+        try:
+            url = domain if domain.startswith(("http://", "https://")) else f"https://{domain}"
+            if action == "submit" and hasattr(vendor, "submit"):
+                vendor.submit(None, domain, email or "", category or "")
+                result["status"] = "submitted"
+            else:
+                check_result = vendor.check(None, url, return_reputation_only=(action == "reputation"))
+                if isinstance(check_result, str) and check_result:
+                    result["category"] = check_result
+                elif isinstance(check_result, tuple):
+                    result["reputation"] = str(check_result[0]) if check_result[0] else None
+                    result["category"] = str(check_result[1]) if len(check_result) > 1 and check_result[1] else None
+            result["status"] = "completed"
+            return result
+        except Exception as e:
+            result["error"] = str(e)
+            result["status"] = "failed"
+            raise
 
     # Browser-based vendors
     from seleniumbase import Driver
