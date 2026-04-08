@@ -17,9 +17,10 @@ logger = Logger(__name__)
 
 
 class DualCaptchaSolver:
-    def __init__(self, twocaptcha_key: str = "", capsolver_key: str = "", brightdata_key: str = ""):
+    def __init__(self, twocaptcha_key: str = "", capsolver_key: str = "", brightdata_key: str = "", capmonster_key: str = ""):
         self.twocaptcha_key = twocaptcha_key
         self.capsolver_key = capsolver_key
+        self.capmonster_key = capmonster_key
         self.brightdata_key = brightdata_key
 
     def solve_hcaptcha(self, sitekey: str, page_url: str) -> str | None:
@@ -69,8 +70,14 @@ class DualCaptchaSolver:
         return None
 
     def solve_image_captcha(self, image_base64: str) -> str | None:
-        """Solve image/text captcha. Tries 2Captcha first, falls back to CapSolver."""
+        """Solve image/text captcha.
+        Priority chain:
+          1. 2Captcha (up to 3 attempts, switches only on timeout/unexpected errors)
+          2. CapMonster (up to 3 attempts)
+          3. CapSolver (up to 3 attempts as last cloud option)
+        """
 
+        # Provider 1: 2Captcha
         if self.twocaptcha_key:
             for attempt in range(3):
                 logger.info(f"[*] Image captcha: 2Captcha attempt {attempt + 1}/3")
@@ -79,6 +86,16 @@ class DualCaptchaSolver:
                     return code
                 logger.warning(f"[!] 2Captcha attempt {attempt + 1} failed")
 
+        # Provider 2: CapMonster (drop-in 2Captcha-compatible API)
+        if self.capmonster_key:
+            for attempt in range(3):
+                logger.info(f"[*] Image captcha: CapMonster attempt {attempt + 1}/3")
+                code = self._capmonster_image(image_base64)
+                if code:
+                    return code
+                logger.warning(f"[!] CapMonster attempt {attempt + 1} failed")
+
+        # Provider 3: CapSolver (last cloud fallback)
         if self.capsolver_key:
             for attempt in range(3):
                 logger.info(f"[*] Image captcha: CapSolver attempt {attempt + 1}/3")
@@ -88,6 +105,36 @@ class DualCaptchaSolver:
                 logger.warning(f"[!] CapSolver attempt {attempt + 1} failed")
 
         logger.error("[-] Image captcha: All solvers exhausted")
+        return None
+
+    def solve_hcaptcha_chain(self, sitekey: str, page_url: str) -> str | None:
+        """Solve hCaptcha with priority chain: 2Captcha → CapMonster → CapSolver."""
+
+        if self.twocaptcha_key:
+            for attempt in range(3):
+                logger.info(f"[*] hCaptcha: 2Captcha attempt {attempt + 1}/3")
+                token = self._twocaptcha_hcaptcha(sitekey, page_url)
+                if token:
+                    return token
+                logger.warning(f"[!] 2Captcha attempt {attempt + 1} failed")
+
+        if self.capmonster_key:
+            for attempt in range(3):
+                logger.info(f"[*] hCaptcha: CapMonster attempt {attempt + 1}/3")
+                token = self._capmonster_hcaptcha(sitekey, page_url)
+                if token:
+                    return token
+                logger.warning(f"[!] CapMonster attempt {attempt + 1} failed")
+
+        if self.capsolver_key:
+            for attempt in range(3):
+                logger.info(f"[*] hCaptcha: CapSolver attempt {attempt + 1}/3")
+                token = self._capsolver_hcaptcha(sitekey, page_url)
+                if token:
+                    return token
+                logger.warning(f"[!] CapSolver attempt {attempt + 1} failed")
+
+        logger.error("[-] hCaptcha: All solvers exhausted")
         return None
 
     # ──── 2Captcha implementations ────
@@ -157,6 +204,60 @@ class DualCaptchaSolver:
                 pass
         logger.warning("[!] 2Captcha poll timed out")
         return None
+
+    # ──── CapMonster implementations (uses 2Captcha-compatible createTask API) ────
+
+    def _capmonster_hcaptcha(self, sitekey: str, page_url: str) -> str | None:
+        return self._capmonster_task({
+            "type": "HCaptchaTaskProxyless",
+            "websiteURL": page_url,
+            "websiteKey": sitekey,
+        })
+
+    def _capmonster_image(self, image_b64: str) -> str | None:
+        return self._capmonster_task({
+            "type": "ImageToTextTask",
+            "body": image_b64,
+        })
+
+    def _capmonster_task(self, task: dict, timeout: int = 180) -> str | None:
+        try:
+            r = requests.post("https://api.capmonster.cloud/createTask", json={
+                "clientKey": self.capmonster_key,
+                "task": task,
+                "softId": 0,
+            }, timeout=15)
+            resp = r.json()
+            task_id = resp.get("taskId")
+            if not task_id:
+                logger.debug(f"[*] CapMonster create failed: {resp}")
+                return None
+
+            deadline = time.time() + timeout
+            while time.time() < deadline:
+                time.sleep(3)
+                r2 = requests.post("https://api.capmonster.cloud/getTaskResult", json={
+                    "clientKey": self.capmonster_key,
+                    "taskId": task_id,
+                }, timeout=10)
+                result = r2.json()
+                if result.get("status") == "ready":
+                    sol = result.get("solution", {})
+                    token = sol.get("gRecaptchaResponse") or sol.get("token") or sol.get("text")
+                    if token:
+                        logger.success(f"[+] CapMonster solved ({len(token)} chars)")
+                        return token
+                    logger.debug(f"[*] CapMonster ready but no token: {sol}")
+                    return None
+                elif result.get("status") != "processing":
+                    logger.debug(f"[*] CapMonster poll error: {result}")
+                    return None
+
+            logger.warning("[!] CapMonster poll timed out")
+            return None
+        except Exception as e:
+            logger.debug(f"[*] CapMonster error: {e}")
+            return None
 
     # ──── CapSolver implementations ────
 
@@ -320,9 +421,14 @@ def get_dual_solver() -> DualCaptchaSolver:
             from helpers.credentials import brightdata_api_key
         except (ImportError, AttributeError):
             brightdata_api_key = ""
+        try:
+            from helpers.credentials import capmonster_api_key
+        except (ImportError, AttributeError):
+            capmonster_api_key = ""
         _solver_instance = DualCaptchaSolver(
             twocaptcha_key=twocaptcha_api_key or "",
             capsolver_key=capsolver_api_key or "",
             brightdata_key=brightdata_api_key or "",
+            capmonster_key=capmonster_api_key or "",
         )
     return _solver_instance

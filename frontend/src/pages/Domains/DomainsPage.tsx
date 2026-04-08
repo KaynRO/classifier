@@ -250,8 +250,9 @@ function SafetyRow({ domain, reputationVendors, onDelete }: { domain: any; reput
     refetchInterval: 4000,
   })
 
+  // Only use 'reputation' action results for the Safety table
   const resultMap: Record<number, any> = {}
-  results?.forEach((r: any) => { resultMap[r.vendor_id] = r })
+  results?.filter((r: any) => r.action_type === 'reputation').forEach((r: any) => { resultMap[r.vendor_id] = r })
 
   const checkMutation = useMutation({
     mutationFn: (vendor: string) => jobsApi.reputation({ domain_id: domain.id }),
@@ -342,8 +343,9 @@ function CategorizationRow({ domain, categoryVendors, expanded, onToggle, onDele
     onSettled: () => queryClient.invalidateQueries({ queryKey: ['domain-results', domain.id] }),
   })
 
+  // Only use 'check' action results for the Categorization table
   const resultMap: Record<number, any> = {}
-  results?.forEach((r: any) => { resultMap[r.vendor_id] = r })
+  results?.filter((r: any) => r.action_type === 'check').forEach((r: any) => { resultMap[r.vendor_id] = r })
 
   return (
     <>
