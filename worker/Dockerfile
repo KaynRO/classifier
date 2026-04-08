@@ -18,6 +18,11 @@ WORKDIR /app
 COPY backend/requirements.txt /app/backend-requirements.txt
 RUN pip install --no-cache-dir -r /app/backend-requirements.txt
 
+# Tesseract OCR for FortiGuard image captchas
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    tesseract-ocr \
+    && rm -rf /var/lib/apt/lists/*
+
 # Classifier engine deps
 RUN pip install --no-cache-dir \
     seleniumbase>=4.46.0 \
@@ -26,7 +31,11 @@ RUN pip install --no-cache-dir \
     beautifulsoup4 \
     lxml \
     colorama \
-    psutil
+    psutil \
+    playwright \
+    pytesseract \
+    pillow \
+    numpy
 
 # Backend app code (Celery tasks, models, config)
 COPY backend/app /app/app
