@@ -2,6 +2,10 @@ import os, time, traceback
 from typing import Optional
 from helpers.utils import *
 from helpers.logger import *
+from helpers.captcha_dual_solver import get_dual_solver
+
+
+HCAPTCHA_SITEKEY = "2fe029e7-318b-44ee-8ae0-ced519d390da"
 
 
 SBR_WS = os.environ.get(
@@ -33,9 +37,9 @@ class Intelixsophos:
         if not clean_url.startswith(("http://", "https://")):
             clean_url = f"https://{clean_url}"
 
-        # Retry up to 6 times because BrightData's hCaptcha auto-solver has ~17% success rate
-        for attempt in range(1, 7):
-            self.logger.info(f"[*] Attempt {attempt}/6")
+        # Retry up to 8 times — BrightData's hCaptcha auto-solver has ~17% success rate
+        for attempt in range(1, 9):
+            self.logger.info(f"[*] Attempt {attempt}/8")
             try:
                 result = self._try_check(clean_url, attempt)
                 if result and result not in ["Captcha Failed", "Timeout"]:
@@ -43,7 +47,7 @@ class Intelixsophos:
             except Exception as e:
                 self.logger.warning(f"[!] Attempt {attempt} error: {e}")
 
-        self.logger.error("[-] All 6 attempts exhausted")
+        self.logger.error("[-] All 8 attempts exhausted")
         return "Captcha Failed"
 
     def _try_check(self, clean_url: str, attempt: int) -> Optional[str]:
@@ -74,44 +78,59 @@ class Intelixsophos:
                 except Exception:
                     pass
 
-                # Call Captcha.solve BEFORE entering URL — let BrightData detect and solve on page load
-                self.logger.info("[*] Calling BrightData Captcha.solve (pre-fill)...")
-                try:
-                    client = page.context.new_cdp_session(page)
-                    result = client.send("Captcha.solve", {"detectTimeout": 60000})
-                    self.logger.info(f"[*] Captcha.solve returned: {result}")
-                except Exception as e:
-                    self.logger.warning(f"[!] Captcha.solve error: {e}")
-
-                time.sleep(3)
-
-                # Enter URL
+                # Enter URL first
                 try:
                     page.fill("input#urlbox", clean_url)
                     self.logger.info(f"[*] Entered URL: {clean_url}")
                 except Exception as e:
                     self.logger.warning(f"[!] URL input failed: {e}")
                     return None
+                time.sleep(2)
 
-                # Poll for button enable over 30 seconds
+                # Priority 1 & 2: Try cloud solvers (2Captcha → CapMonster → CapSolver)
                 btn_enabled = False
-                for i in range(30):
-                    time.sleep(1)
+                self.logger.info("[*] Trying cloud hCaptcha solvers (2Captcha → CapMonster → CapSolver)...")
+                solver = get_dual_solver()
+                token = solver.solve_hcaptcha_chain(HCAPTCHA_SITEKEY, self.url)
+                if token:
+                    self.logger.info(f"[*] Got cloud token ({len(token)} chars), injecting...")
+                    page.evaluate("""(token) => {
+                        document.querySelectorAll('textarea[name="h-captcha-response"], textarea[name="g-recaptcha-response"]').forEach(el => {
+                            el.value = token;
+                            el.innerHTML = token;
+                            el.dispatchEvent(new Event('input', {bubbles: true}));
+                            el.dispatchEvent(new Event('change', {bubbles: true}));
+                        });
+                    }""", token)
+                    time.sleep(3)
                     btn_enabled = page.evaluate(
                         '() => { const b = document.querySelector("button.submit-button"); return b && !b.disabled && !b.classList.contains("p-disabled"); }'
                     )
-                    # Also check hCaptcha response value
-                    hc_value = page.evaluate(
-                        '() => { const el = document.querySelector("textarea[name=\\"h-captcha-response\\"]"); return el ? el.value.length : 0; }'
-                    )
-                    if i % 5 == 0:
-                        self.logger.debug(f"[*] Poll {i+1}s: btn={btn_enabled} hc_response_len={hc_value}")
                     if btn_enabled:
-                        self.logger.success(f"[+] Button enabled after {i+1}s")
-                        break
+                        self.logger.success("[+] Cloud token accepted, button enabled")
+
+                # Priority 3 (fallback): BrightData Captcha.solve
+                if not btn_enabled:
+                    self.logger.info("[*] Cloud solvers failed, falling back to BrightData Captcha.solve...")
+                    try:
+                        client = page.context.new_cdp_session(page)
+                        result = client.send("Captcha.solve", {"detectTimeout": 60000})
+                        self.logger.info(f"[*] Captcha.solve returned: {result}")
+                    except Exception as e:
+                        self.logger.warning(f"[!] BrightData Captcha.solve error: {e}")
+
+                    # Poll for button enable
+                    for i in range(30):
+                        time.sleep(1)
+                        btn_enabled = page.evaluate(
+                            '() => { const b = document.querySelector("button.submit-button"); return b && !b.disabled && !b.classList.contains("p-disabled"); }'
+                        )
+                        if btn_enabled:
+                            self.logger.success(f"[+] BrightData solved after {i+1}s")
+                            break
 
                 if not btn_enabled:
-                    self.logger.warning("[!] Button still disabled after 30s polling")
+                    self.logger.warning("[!] Button still disabled after all solvers")
                     return None
 
                 # Click Analyze

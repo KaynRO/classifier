@@ -3,6 +3,7 @@ from typing import Optional
 from helpers.constants import *
 from helpers.utils import *
 from helpers.logger import *
+from helpers.captcha_dual_solver import get_dual_solver
 
 
 SBR_WS = os.environ.get(
@@ -78,6 +79,28 @@ def _ocr_captcha(image_path: str, logger: Logger) -> Optional[str]:
         logger.debug(f"[*] OCR candidates: {counter.most_common(5)}")
         return best.upper()
     return None
+
+
+def _solve_captcha_with_chain(captcha_path: str, logger: Logger) -> Optional[str]:
+    """Solve image captcha with provider chain: 2Captcha → CapMonster → local Tesseract OCR.
+    Returns the code string, or None."""
+    try:
+        with open(captcha_path, "rb") as f:
+            img_b64 = base64.b64encode(f.read()).decode()
+    except Exception as e:
+        logger.error(f"[-] Cannot read captcha file: {e}")
+        return None
+
+    # Priority 1 & 2: cloud solvers (2Captcha → CapMonster → CapSolver)
+    solver = get_dual_solver()
+    code = solver.solve_image_captcha(img_b64)
+    if code:
+        logger.success(f"[+] Captcha solved via cloud: {code}")
+        return code
+
+    # Priority 3: local Tesseract OCR as last resort
+    logger.info("[*] Cloud solvers exhausted, falling back to local OCR")
+    return _ocr_captcha(captcha_path, logger)
 
 
 def _extract_captcha_image(page) -> Optional[str]:
@@ -211,8 +234,8 @@ class FortiGuard:
                     return category
 
                 # Captcha solving loop — 3 attempts
-                for attempt in range(1, 4):
-                    self.logger.info(f"[*] Captcha attempt {attempt}/3")
+                for attempt in range(1, 6):
+                    self.logger.info(f"[*] Captcha attempt {attempt}/5")
 
                     # If on failure page, restart
                     body = page.inner_text("body")
@@ -230,12 +253,12 @@ class FortiGuard:
                         self.logger.warning("[!] No captcha image found")
                         continue
 
-                    code = _ocr_captcha(captcha_path, self.logger)
+                    code = _solve_captcha_with_chain(captcha_path, self.logger)
                     if not code:
-                        self.logger.warning("[!] OCR failed")
+                        self.logger.warning("[!] All solvers failed")
                         continue
 
-                    self.logger.info(f"[*] OCR code: {code}")
+                    self.logger.info(f"[*] Captcha code: {code}")
                     _enter_captcha_and_submit(page, code)
                     time.sleep(5)
 
@@ -344,8 +367,8 @@ class FortiGuard:
 
                 # Now solve the image captcha (same as check flow)
                 solved = False
-                for attempt in range(1, 4):
-                    self.logger.info(f"[*] Image captcha attempt {attempt}/3")
+                for attempt in range(1, 6):
+                    self.logger.info(f"[*] Image captcha attempt {attempt}/5")
 
                     captcha_path = _extract_captcha_image(page)
                     if not captcha_path:
@@ -356,12 +379,12 @@ class FortiGuard:
                             solved = True
                         break
 
-                    code = _ocr_captcha(captcha_path, self.logger)
+                    code = _solve_captcha_with_chain(captcha_path, self.logger)
                     if not code:
-                        self.logger.warning("[!] OCR failed, refreshing captcha")
+                        self.logger.warning("[!] All solvers failed, refreshing captcha")
                         continue
 
-                    self.logger.info(f"[*] OCR code: {code}")
+                    self.logger.info(f"[*] Captcha code: {code}")
                     _enter_captcha_and_submit(page, code)
                     time.sleep(5)
 
