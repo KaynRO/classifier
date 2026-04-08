@@ -32,7 +32,9 @@ def _setup_credentials():
             "CAPSOLVER_API_KEY": "capsolver_api_key",
             "BRIGHTDATA_API_KEY": "brightdata_api_key",
             "BRIGHTDATA_BROWSER_WS": "brightdata_browser_ws",
-            "CAPMONSTER_API_KEY": "capmonster_api_key",
+            "CHECKPOINT_USERNAME": "checkpoint_username",
+            "CHECKPOINT_PASSWORD": "checkpoint_password",
+            "CHECKPOINT_TOTP_SECRET": "checkpoint_totp_secret",
         }
         for env_key, attr_name in env_map.items():
             val = os.environ.get(env_key)

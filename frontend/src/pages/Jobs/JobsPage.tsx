@@ -237,19 +237,24 @@ function JobRow({ job, displayStatus, domainName, total, done, allDone, entries,
   vendors?.forEach((v: any) => { vendorLookup[v.name] = v })
 
   // Build logs lookup: vendor_name -> logs
+  // Filter by the current job's action_type so that a 'check' job doesn't
+  // accidentally show logs from a later 'submit' row (they share the same
+  // vendor_id in check_results but different action_type).
   const logsMap: Record<string, { logs: string; duration: number; status: string; category?: string; error?: string }> = {}
-  vendorResults?.forEach((r: any) => {
-    const v = vendors?.find((v: any) => v.id === r.vendor_id)
-    if (v) {
-      logsMap[v.name] = {
-        logs: r.raw_response?.logs || r.raw_response?.raw_log || '',
-        duration: r.raw_response?.duration_seconds || 0,
-        status: r.status,
-        category: r.category,
-        error: r.error_message,
+  vendorResults
+    ?.filter((r: any) => r.action_type === job.action_type)
+    .forEach((r: any) => {
+      const v = vendors?.find((v: any) => v.id === r.vendor_id)
+      if (v) {
+        logsMap[v.name] = {
+          logs: r.raw_response?.logs || r.raw_response?.raw_log || '',
+          duration: r.raw_response?.duration_seconds || 0,
+          status: r.status,
+          category: r.category,
+          error: r.error_message,
+        }
       }
-    }
-  })
+    })
 
   const duration = formatDuration(job.started_at, job.completed_at)
 

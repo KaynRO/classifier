@@ -5,7 +5,8 @@ import StatusBadge from '@/components/StatusBadge'
 import CategoryBadge from '@/components/CategoryBadge'
 import { Plus, Search, Trash2, ChevronDown, ChevronRight, Save, X, Loader2, ScanSearch, Download, PlayCircle, SendHorizonal } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { CATEGORIES, HIDDEN_VENDORS } from '@/lib/constants'
+import { CATEGORIES, HIDDEN_VENDORS, getManualUrl } from '@/lib/constants'
+import { ExternalLink } from 'lucide-react'
 
 function timeAgo(dateStr: string | null | undefined): string {
   if (!dateStr) return ''
@@ -261,6 +262,12 @@ function SafetyRow({ domain, reputationVendors, onDelete }: { domain: any; reput
     onSettled: () => queryClient.invalidateQueries({ queryKey: ['domain-results', domain.id] }),
   })
 
+  const cancelMutation = useMutation({
+    mutationFn: (vendor: string) => jobsApi.cancelVendor(domain.id, vendor),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['domain-results', domain.id] }); toast.success('Cancelled') },
+    onError: () => toast.error('Cancel failed'),
+  })
+
   return (
     <tr className="border-b border-border hover:bg-[hsl(var(--table-row-hover,var(--accent)))] transition-colors">
       <td className="px-5 py-3 align-middle">
@@ -269,21 +276,41 @@ function SafetyRow({ domain, reputationVendors, onDelete }: { domain: any; reput
       {reputationVendors.map((v: any) => {
         const r = resultMap[v.id]
         const busy = r?.status === 'running' || r?.status === 'pending'
+        const lastFailed = r?.status === 'failed'
+        const manualUrl = lastFailed ? getManualUrl(v.name, 'check', domain.domain) : null
         return (
           <td key={v.id} className="px-4 py-3 align-middle">
-            <div className="flex items-center gap-2.5 h-[26px]">
-              <StatusBadge status={r?.status === 'success' ? 'clean' : r?.status} loading={busy} />
-              <button
-                onClick={() => checkMutation.mutate(v.name)}
-                disabled={busy}
-                className={`px-3 h-[26px] rounded-md text-[11px] font-medium transition-all duration-200 ${
-                  busy
-                    ? 'bg-muted/40 text-muted-foreground/30 cursor-not-allowed'
-                    : 'bg-secondary hover:bg-accent text-secondary-foreground hover:text-accent-foreground'
-                }`}
-              >
-                {busy ? <Loader2 size={10} className="animate-spin" /> : 'Verify'}
-              </button>
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-2.5 h-[26px]">
+                <StatusBadge
+                  status={r?.status === 'success' ? 'clean' : r?.status}
+                  loading={busy}
+                  onCancel={busy ? () => cancelMutation.mutate(v.name) : undefined}
+                />
+                <button
+                  onClick={() => checkMutation.mutate(v.name)}
+                  disabled={busy}
+                  className={`px-3 h-[26px] rounded-md text-[11px] font-medium transition-all duration-200 ${
+                    busy
+                      ? 'bg-muted/40 text-muted-foreground/30 cursor-not-allowed'
+                      : 'bg-secondary hover:bg-accent text-secondary-foreground hover:text-accent-foreground'
+                  }`}
+                >
+                  {busy ? <Loader2 size={10} className="animate-spin" /> : 'Verify'}
+                </button>
+              </div>
+              {manualUrl && (
+                <a
+                  href={manualUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Automated check failed — open vendor page to verify manually"
+                  className="inline-flex items-center gap-1 px-2 h-[22px] rounded-md text-[10px] font-medium bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border border-amber-500/30 transition-colors w-fit"
+                >
+                  <ExternalLink size={9} />
+                  Manual Check
+                </a>
+              )}
             </div>
           </td>
         )
@@ -343,9 +370,18 @@ function CategorizationRow({ domain, categoryVendors, expanded, onToggle, onDele
     onSettled: () => queryClient.invalidateQueries({ queryKey: ['domain-results', domain.id] }),
   })
 
+  const cancelMutation = useMutation({
+    mutationFn: (vendor: string) => jobsApi.cancelVendor(domain.id, vendor),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['domain-results', domain.id] }); toast.success('Cancelled') },
+    onError: () => toast.error('Cancel failed'),
+  })
+
   // Only use 'check' action results for the Categorization table
   const resultMap: Record<number, any> = {}
   results?.filter((r: any) => r.action_type === 'check').forEach((r: any) => { resultMap[r.vendor_id] = r })
+  // Separate map for submit results so we can surface a "Manual Submit" button on failure
+  const submitResultMap: Record<number, any> = {}
+  results?.filter((r: any) => r.action_type === 'submit').forEach((r: any) => { submitResultMap[r.vendor_id] = r })
 
   return (
     <>
@@ -368,21 +404,26 @@ function CategorizationRow({ domain, categoryVendors, expanded, onToggle, onDele
         </td>
         {categoryVendors.map((v: any) => {
           const r = resultMap[v.id]
+          const sr = submitResultMap[v.id]
           const isCheckBusy = r?.status === 'running' || r?.status === 'pending'
-          const isSubmitBusy = false // submit runs as a separate check, tracked by status
+          const isSubmitBusy = sr?.status === 'running' || sr?.status === 'pending'
+          const checkFailed = r?.status === 'failed'
+          const submitFailed = sr?.status === 'failed'
+          const manualCheckUrl = checkFailed ? getManualUrl(v.name, 'check', domain.domain) : null
+          const manualSubmitUrl = submitFailed && v.supports_submit ? getManualUrl(v.name, 'submit', domain.domain) : null
           return (
             <td key={v.id} className="px-3 py-2 text-center">
               <div className="flex flex-col items-center gap-1">
-                {/* Result */}
-                {isCheckBusy ? (
-                  <StatusBadge status="running" />
+                {/* Result — show running badge whenever check OR submit is in-flight */}
+                {isCheckBusy || isSubmitBusy ? (
+                  <StatusBadge status="running" onCancel={() => cancelMutation.mutate(v.name)} />
                 ) : r?.status === 'success' ? (
                   <CategoryBadge category={r.category} desired={domain.desired_category} />
                 ) : (
                   <StatusBadge status={r?.status} />
                 )}
                 {/* Timestamp */}
-                {r?.completed_at && !isCheckBusy && (
+                {r?.completed_at && !isCheckBusy && !isSubmitBusy && (
                   <span className="text-[9px] text-muted-foreground/50">{timeAgo(r.completed_at)}</span>
                 )}
                 {/* Buttons */}
@@ -415,6 +456,35 @@ function CategorizationRow({ domain, categoryVendors, expanded, onToggle, onDele
                     </button>
                   )}
                 </div>
+                {/* Manual fallback buttons — appear only after automation failed */}
+                {(manualCheckUrl || manualSubmitUrl) && (
+                  <div className="flex items-center gap-1 mt-0.5">
+                    {manualCheckUrl && (
+                      <a
+                        href={manualCheckUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Automated check failed — open vendor page to check manually"
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-medium bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border border-amber-500/30 transition-colors"
+                      >
+                        <ExternalLink size={8} />
+                        Manual Check
+                      </a>
+                    )}
+                    {manualSubmitUrl && (
+                      <a
+                        href={manualSubmitUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Automated submit failed — open vendor page to submit manually"
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-medium bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border border-amber-500/30 transition-colors"
+                      >
+                        <ExternalLink size={8} />
+                        Manual Submit
+                      </a>
+                    )}
+                  </div>
+                )}
               </div>
             </td>
           )

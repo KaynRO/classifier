@@ -82,8 +82,7 @@ def _ocr_captcha(image_path: str, logger: Logger) -> Optional[str]:
 
 
 def _solve_captcha_with_chain(captcha_path: str, logger: Logger) -> Optional[str]:
-    """Solve image captcha with provider chain: 2Captcha → CapMonster → local Tesseract OCR.
-    Returns the code string, or None."""
+    # Provider chain: 2Captcha → CapSolver → local Tesseract OCR.
     try:
         with open(captcha_path, "rb") as f:
             img_b64 = base64.b64encode(f.read()).decode()
@@ -91,7 +90,6 @@ def _solve_captcha_with_chain(captcha_path: str, logger: Logger) -> Optional[str
         logger.error(f"[-] Cannot read captcha file: {e}")
         return None
 
-    # Priority 1 & 2: cloud solvers (2Captcha → CapMonster → CapSolver)
     solver = get_dual_solver()
     code = solver.solve_image_captcha(img_b64)
     if code:
@@ -148,17 +146,37 @@ def _enter_captcha_and_submit(page, code: str):
 
 
 def _extract_category(body_text: str) -> str:
-    for line in body_text.split("\n"):
+    """Extract FortiGuard category AND risk level, returns 'Category | Risk Level'."""
+    category = None
+    risk_level = None
+
+    lines = body_text.split("\n")
+    for i, line in enumerate(lines):
         stripped = line.strip()
         lower = stripped.lower()
-        if lower.startswith("category:") or lower.startswith("category :"):
+
+        # Extract Category
+        if category is None and (lower.startswith("category:") or lower.startswith("category :")):
             val = stripped.split(":", 1)[1].strip()
             if val and val.lower() not in ["", "category"]:
-                return val
-    # Check for "Newly Registered Domain" in history
-    if "newly registered" in body_text.lower():
-        return "Newly Registered Domain"
-    return "Not Found"
+                category = val
+
+        # Extract Risk Level
+        if risk_level is None and (lower.startswith("risk level:") or lower.startswith("risk level :")):
+            val = stripped.split(":", 1)[1].strip()
+            if val and val.lower() not in ["", "risk level"]:
+                risk_level = val
+
+    # Fallback: Newly Registered Domain
+    if not category and "newly registered" in body_text.lower():
+        category = "Newly Registered Domain"
+
+    if not category:
+        return "Not Found"
+
+    if risk_level:
+        return f"{category} | {risk_level}"
+    return category
 
 
 def _fill_form(page, domain: str, logger: Logger) -> bool:
@@ -258,7 +276,6 @@ class FortiGuard:
                         self.logger.warning("[!] All solvers failed")
                         continue
 
-                    self.logger.info(f"[*] Captcha code: {code}")
                     _enter_captcha_and_submit(page, code)
                     time.sleep(5)
 
@@ -384,7 +401,6 @@ class FortiGuard:
                         self.logger.warning("[!] All solvers failed, refreshing captcha")
                         continue
 
-                    self.logger.info(f"[*] Captcha code: {code}")
                     _enter_captcha_and_submit(page, code)
                     time.sleep(5)
 

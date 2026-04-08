@@ -35,7 +35,8 @@ RUN pip install --no-cache-dir \
     playwright \
     pytesseract \
     pillow \
-    numpy
+    numpy \
+    pyotp
 
 # Backend app code (Celery tasks, models, config)
 COPY backend/app /app/app
