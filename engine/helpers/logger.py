@@ -33,10 +33,9 @@ class Logger:
         self.buffering_enabled = False
         self.log_buffer = []
 
-        # Ensure log directory exists
+        # Ensure log directory exists (exist_ok avoids races between concurrent workers)
         log_dir = "logs"
-        if not os.path.exists(log_dir):
-            os.makedirs(log_dir)
+        os.makedirs(log_dir, exist_ok=True)
 
         log_filename = "domain-classification.log"
         log_path = os.path.join(log_dir, log_filename)

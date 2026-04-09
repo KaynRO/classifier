@@ -343,14 +343,44 @@ def randomize_user_agent() -> str:
 
 
 def construct_reason_for_review_comment(target_url: str, category: str, simple_message: bool = False) -> str:
+    # We build and operate web applications on behalf of our clients. After
+    # launch, the domains frequently land in a generic "uncategorized" or
+    # "newly registered" bucket for a few weeks, which blocks end-user access
+    # through corporate web filters. These messages request the correct
+    # category so legitimate business traffic isn't interrupted.
     messages = [
-        f'Dear,\n\nI am writing to discuss my website, {target_url}, and why I believe it should be categorized under {category}.\n\nI kindly request your consideration in reviewing my website and including it in the relevant category on your platform.',
-        f'Hello,\n\n I am reaching out to propose the categorization of my website, {target_url}, as {category}.',
-        f'Hello,\n\n I wanted to present my website, {target_url}, for consideration in the {category} category on your platform.'
+        (
+            f"Hello,\n\n"
+            f"We built and operate {target_url} on behalf of a client, and the site is now live in production. "
+            f"Could you please review the domain and categorize it as {category}? "
+            f"Because the domain is relatively new, it's currently either uncategorized or sitting in a "
+            f"newly-registered bucket, which is causing legitimate end users behind corporate web filters to be blocked.\n\n"
+            f"Thank you for your help."
+        ),
+        (
+            f"Dear Review Team,\n\n"
+            f"I'm writing on behalf of the team that built and maintains {target_url} for one of our clients. "
+            f"The web application is fully developed, launched, and serving real users. "
+            f"We would like to request that you review the website and assign it to the {category} category, "
+            f"as its current classification is preventing our client's customers and employees from reaching it through web-filtering products.\n\n"
+            f"We appreciate your consideration."
+        ),
+        (
+            f"Hello,\n\n"
+            f"We are the development team behind {target_url} — a web application we built and now operate for a client. "
+            f"The site has been live for a while and belongs in the {category} category. "
+            f"Please review it and update the classification accordingly so that users on networks protected by your filter "
+            f"can access it without being blocked or warned.\n\n"
+            f"Thank you."
+        ),
     ]
 
     if simple_message:
-        return f'I believe that my website {target_url} goes under {category} category.'
+        return (
+            f"We built and operate {target_url} for a client. The web application is live in production "
+            f"and should be categorized as {category}. Please review and update the classification so that "
+            f"end users behind corporate web filters are not blocked. Thank you."
+        )
 
     return random.choice(messages)
 

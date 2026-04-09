@@ -1,10 +1,152 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { dashboardApi, jobsApi } from '@/api/client'
+import { dashboardApi } from '@/api/client'
 import { useWebSocket } from '@/context/WebSocketContext'
 import StatusBadge from '@/components/StatusBadge'
 import CategoryBadge from '@/components/CategoryBadge'
-import { Globe, Shield, AlertTriangle, Clock, RefreshCw } from 'lucide-react'
+import { Globe, Shield, AlertTriangle, Clock, RefreshCw, ArrowRight, CheckCircle2, MinusCircle, AlertCircle } from 'lucide-react'
+
+
+type Bucket = 'match' | 'neutral' | 'suspicious' | 'unchecked'
+
+
+const RISK_KEYWORDS = [
+  'suspicious', 'phishing', 'malware', 'malicious', 'spam', 'scam', 'fraud',
+  'botnet', 'exploit', 'compromised', 'hacked', 'c2', 'attack', 'trojan',
+  'high risk', 'critical risk',
+]
+
+
+const NEUTRAL_KEYWORDS = [
+  'not found', 'not rated', 'uncategorized', 'newly registered',
+  'newly observed', 'no established', 'unknown', 'unrated', 'inactive sites',
+  'untested', 'n/a',
+]
+
+
+function bucketCategoryCell(category: string | null, desired: string | null): Bucket {
+  if (!category) return 'unchecked'
+  const lower = category.toLowerCase()
+
+  if (RISK_KEYWORDS.some(k => lower.includes(k))) return 'suspicious'
+
+  if (desired) {
+    const desiredLower = desired.toLowerCase()
+    if (lower.includes(desiredLower)) return 'match'
+  }
+
+  if (NEUTRAL_KEYWORDS.some(k => lower.includes(k))) return 'neutral'
+
+  // Categorized as something real but not the desired category, and not risky
+  return 'neutral'
+}
+
+
+function bucketReputationCell(reputation: string | null, category: string | null): Bucket {
+  // Reputation vendors often write result into `category` OR `reputation`
+  const value = (reputation || category || '').toLowerCase()
+  if (!value) return 'unchecked'
+  if (RISK_KEYWORDS.some(k => value.includes(k))) return 'suspicious'
+  if (value.includes('clean') || value.includes('harmless') || value.includes('no threats')) return 'match'
+  return 'neutral'
+}
+
+
+function DomainStatsCard({ row }: { row: any }) {
+  const desired = row.domain.desired_category as string | null
+  const cells = row.results || []
+
+  let match = 0
+  let neutral = 0
+  let suspicious = 0
+  let unchecked = 0
+
+  for (const cell of cells) {
+    if (cell.status !== 'success') {
+      unchecked++
+      continue
+    }
+    // Heuristic: if the cell has a reputation field populated, treat as reputation vendor
+    const isReputation = !!cell.reputation && !cell.category
+    const b = isReputation
+      ? bucketReputationCell(cell.reputation, cell.category)
+      : bucketCategoryCell(cell.category, desired)
+    if (b === 'match') match++
+    else if (b === 'suspicious') suspicious++
+    else if (b === 'neutral') neutral++
+    else unchecked++
+  }
+
+  const total = cells.length
+  const covered = match + neutral + suspicious
+
+  return (
+    <div className="rounded-lg border border-border bg-card p-4 hover:border-primary/40 transition-colors">
+      <div className="flex items-start justify-between mb-3">
+        <div className="min-w-0 flex-1">
+          <Link
+            to={`/domains/${row.domain.id}`}
+            className="font-medium text-sm text-primary/90 dark:text-[hsl(265,50%,72%)] hover:underline truncate block"
+          >
+            {row.domain.domain}
+          </Link>
+          {desired ? (
+            <div className="mt-1">
+              <span className="px-1.5 py-px rounded text-[10px] font-medium bg-primary/10 text-primary/70 dark:text-[hsl(265,40%,65%)]">
+                {desired}
+              </span>
+            </div>
+          ) : (
+            <div className="mt-1 text-[10px] text-muted-foreground/50 italic">No desired category</div>
+          )}
+        </div>
+        <Link
+          to={`/domains/${row.domain.id}`}
+          className="flex items-center gap-1 text-[10px] font-medium text-muted-foreground hover:text-primary px-2 py-1 rounded border border-border hover:border-primary/40 transition-colors whitespace-nowrap"
+          title="View full vendor breakdown"
+        >
+          View Details
+          <ArrowRight size={10} />
+        </Link>
+      </div>
+
+      {/* Stacked bar */}
+      {total > 0 && (
+        <div className="h-1.5 w-full rounded-full overflow-hidden flex bg-muted/30 mb-3">
+          {match > 0 && <div className="bg-emerald-500" style={{ width: `${(match / total) * 100}%` }} />}
+          {neutral > 0 && <div className="bg-slate-400" style={{ width: `${(neutral / total) * 100}%` }} />}
+          {suspicious > 0 && <div className="bg-red-500" style={{ width: `${(suspicious / total) * 100}%` }} />}
+        </div>
+      )}
+
+      {/* Count badges */}
+      <div className="grid grid-cols-3 gap-1.5 text-[10px]">
+        <div className="flex items-center gap-1 px-2 py-1 rounded bg-emerald-500/10 border border-emerald-500/20" title="Vendors reporting the desired/correct category">
+          <CheckCircle2 size={11} className="text-emerald-500 shrink-0" />
+          <span className="text-emerald-500 font-semibold">{match}</span>
+          <span className="text-muted-foreground/70 truncate">matching</span>
+        </div>
+        <div className="flex items-center gap-1 px-2 py-1 rounded bg-slate-500/10 border border-slate-500/20" title="Uncategorized / newly registered / unrelated">
+          <MinusCircle size={11} className="text-slate-400 shrink-0" />
+          <span className="text-slate-400 font-semibold">{neutral}</span>
+          <span className="text-muted-foreground/70 truncate">neutral</span>
+        </div>
+        <div className="flex items-center gap-1 px-2 py-1 rounded bg-red-500/10 border border-red-500/20" title="Flagged as suspicious / malicious / phishing / high-risk">
+          <AlertCircle size={11} className="text-red-500 shrink-0" />
+          <span className="text-red-500 font-semibold">{suspicious}</span>
+          <span className="text-muted-foreground/70 truncate">risky</span>
+        </div>
+      </div>
+
+      {unchecked > 0 && (
+        <div className="mt-2 text-[10px] text-muted-foreground/60">
+          {covered}/{total} vendors checked · {unchecked} pending
+        </div>
+      )}
+    </div>
+  )
+}
+
 
 export default function DashboardPage() {
   const { data: summary } = useQuery({
@@ -28,11 +170,22 @@ export default function DashboardPage() {
     { label: 'Pending Jobs', value: summary?.pending_jobs ?? '--', icon: Clock, color: 'text-purple-500' },
   ]
 
+  const rows = matrix?.items || []
+
   return (
     <div className="space-y-8">
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight">Dashboard</h2>
-        <p className="text-muted-foreground mt-1">Overview of your domain classifications</p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight">Dashboard</h2>
+          <p className="text-muted-foreground mt-1">Per-domain classification summary across all vendors</p>
+        </div>
+        <Link
+          to="/domains"
+          className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-primary px-3 py-1.5 rounded border border-border hover:border-primary/40 transition-colors"
+        >
+          All domains
+          <ArrowRight size={14} />
+        </Link>
       </div>
 
       {/* Stats Cards */}
@@ -48,66 +201,27 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      {/* Domain Vendor Matrix */}
+      {/* Per-Domain Summary Grid */}
       <div className="rounded-lg border border-border bg-card overflow-hidden">
         <div className="px-5 py-3 border-b border-border bg-[hsl(var(--table-header,var(--secondary)))] flex items-center justify-between">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Domain / Vendor Matrix</h3>
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Domain Classification Summary
+          </h3>
           <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
             <RefreshCw size={12} className={messages.length > 0 ? 'animate-spin text-primary' : ''} />
             Auto-refreshing
           </div>
         </div>
-
-        <div className="overflow-x-auto">
-          <table className="text-sm" style={{ minWidth: `${240 + (matrix?.items?.[0]?.results?.length || 10) * 170}px` }}>
-            <thead>
-              <tr className="border-b border-border text-[11px] uppercase tracking-wider text-muted-foreground">
-                <th className="px-5 py-2.5 text-left font-medium w-[240px] sticky left-0 bg-card z-10">Domain</th>
-                {matrix?.items?.[0]?.results?.map((cell: any) => (
-                  <th key={cell.vendor_name} className="px-4 py-2.5 text-center font-medium w-[170px]">
-                    {cell.vendor_display_name}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {matrix?.items?.map((row: any) => (
-                <tr key={row.domain.id} className="border-b border-border hover:bg-[hsl(var(--table-row-hover,var(--accent)))] transition-colors">
-                  <td className="px-5 py-2.5 sticky left-0 bg-card z-10">
-                    <Link to={`/domains/${row.domain.id}`} className="font-medium hover:underline text-primary/90 dark:text-[hsl(265,50%,72%)]">
-                      {row.domain.domain}
-                    </Link>
-                    {row.domain.desired_category && (
-                      <div className="mt-0.5">
-                        <span className="px-1.5 py-px rounded text-[10px] font-medium bg-primary/10 text-primary/70 dark:text-[hsl(265,40%,65%)]">{row.domain.desired_category}</span>
-                      </div>
-                    )}
-                  </td>
-                  {row.results.map((cell: any) => (
-                    <td key={cell.vendor_name} className="px-4 py-2.5 text-center">
-                      {cell.status === 'running' ? (
-                        <StatusBadge status="running" />
-                      ) : cell.status === 'success' ? (
-                        <CategoryBadge category={cell.category} desired={row.domain.desired_category} />
-                      ) : (
-                        <StatusBadge status={cell.status} />
-                      )}
-                      {cell.last_checked && cell.status !== 'running' && (
-                        <div className="text-[9px] text-muted-foreground/50 mt-0.5">{new Date(cell.last_checked).toLocaleDateString()}</div>
-                      )}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-              {(!matrix?.items || matrix.items.length === 0) && (
-                <tr>
-                  <td colSpan={20} className="px-5 py-12 text-center text-muted-foreground text-sm">
-                    No domains added yet. Go to Domains to add your first domain.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+        <div className="p-4">
+          {rows.length === 0 ? (
+            <div className="px-5 py-12 text-center text-muted-foreground text-sm">
+              No domains added yet. Go to <Link to="/domains" className="text-primary hover:underline">Domains</Link> to add your first domain.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+              {rows.map((row: any) => <DomainStatsCard key={row.domain.id} row={row} />)}
+            </div>
+          )}
         </div>
       </div>
 

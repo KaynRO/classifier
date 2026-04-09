@@ -3,10 +3,32 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { domainsApi, jobsApi, vendorsApi } from '@/api/client'
 import StatusBadge from '@/components/StatusBadge'
 import CategoryBadge from '@/components/CategoryBadge'
-import { Plus, Search, Trash2, ChevronDown, ChevronRight, Save, X, Loader2, ScanSearch, Download, PlayCircle, SendHorizonal } from 'lucide-react'
+import { Plus, Search, Trash2, X, Loader2, ScanSearch, Download, PlayCircle, SendHorizonal } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { CATEGORIES, HIDDEN_VENDORS, getManualUrl } from '@/lib/constants'
 import { ExternalLink } from 'lucide-react'
+import { Link } from 'react-router-dom'
+
+// Pull the parenthetical detail out of a reputation category string like
+// "Clean (0/94 harmless)" → "0/94 harmless".
+function extractDetail(category: string): string | null {
+  const m = category.match(/\(([^)]+)\)/)
+  return m ? m[1] : null
+}
+
+
+// Map a reputation check_result to the badge we want to render. A successful
+// check whose category starts with "Malicious" or "Suspicious" should NOT
+// render as "Clean" — they need their own styling.
+function deriveBadgeStatus(r: any): string | null | undefined {
+  if (!r) return undefined
+  if (r.status !== 'success') return r.status
+  const cat = (r.category || '').toLowerCase()
+  if (cat.startsWith('malicious')) return 'failed'
+  if (cat.startsWith('suspicious')) return 'pending'
+  return 'clean'
+}
+
 
 function timeAgo(dateStr: string | null | undefined): string {
   if (!dateStr) return ''
@@ -25,7 +47,6 @@ function timeAgo(dateStr: string | null | undefined): string {
 export default function DomainsPage() {
   const [search, setSearch] = useState('')
   const [showAdd, setShowAdd] = useState(false)
-  const [expandedId, setExpandedId] = useState<string | null>(null)
   const [scanningAll, setScanningAll] = useState(false)
   const [domainToDelete, setDomainToDelete] = useState<any>(null)
   const queryClient = useQueryClient()
@@ -116,17 +137,19 @@ export default function DomainsPage() {
       {/* SAFETY STATUS */}
       <section className="rounded-lg border border-border bg-card overflow-hidden">
         <div className="px-5 py-3 border-b border-border bg-[hsl(var(--table-header,var(--secondary)))]">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Safety Status</h3>
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Safety Status <span className="text-muted-foreground/50 font-normal normal-case">({reputationVendors.length} vendor{reputationVendors.length === 1 ? '' : 's'})</span>
+          </h3>
         </div>
         <div className="overflow-x-auto">
-          <table className="text-sm" style={{ minWidth: `${220 + reputationVendors.length * 210 + 50}px` }}>
+          <table className="text-sm" style={{ minWidth: `${220 + 80 + reputationVendors.length * 210}px` }}>
             <thead>
               <tr className="border-b border-border text-[11px] uppercase tracking-wider text-muted-foreground">
                 <th className="px-5 py-2.5 text-left font-medium w-[220px]">Domain</th>
+                <th className="px-3 py-2.5 text-center font-medium w-[80px]">Actions</th>
                 {reputationVendors.map((v: any) => (
-                  <th key={v.id} className="px-4 py-2.5 text-left font-medium w-[210px]">{v.display_name}</th>
+                  <th key={v.id} className="px-4 py-2.5 text-left font-medium w-[210px] border-l border-border/40">{v.display_name}</th>
                 ))}
-                <th className="px-3 py-2.5 w-[50px]"></th>
               </tr>
             </thead>
             <tbody>
@@ -145,7 +168,9 @@ export default function DomainsPage() {
       {/* WEB PROXY CATEGORIZATION */}
       <section className="rounded-lg border border-border bg-card overflow-hidden">
         <div className="px-5 py-3 border-b border-border bg-[hsl(var(--table-header,var(--secondary)))]">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Web Proxy Categorization</h3>
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Web Proxy Categorization <span className="text-muted-foreground/50 font-normal normal-case">({categoryVendors.length} vendor{categoryVendors.length === 1 ? '' : 's'})</span>
+          </h3>
         </div>
         <div className="overflow-x-auto">
           <table className="text-sm" style={{ minWidth: `${240 + categoryVendors.length * 195 + 80}px` }}>
@@ -158,8 +183,6 @@ export default function DomainsPage() {
                   key={domain.id}
                   domain={domain}
                   categoryVendors={categoryVendors}
-                  expanded={expandedId === domain.id}
-                  onToggle={() => setExpandedId(prev => prev === domain.id ? null : domain.id)}
                   onDelete={() => setDomainToDelete(domain)}
                 />
               ))}
@@ -215,10 +238,10 @@ function VendorHeaders({ categoryVendors, domains }: { categoryVendors: any[]; d
   return (
     <tr className="border-b border-border text-[11px] uppercase tracking-wider text-muted-foreground">
       <th className="px-5 py-2.5 text-left font-medium w-[240px] sticky left-0 bg-card z-10">Domain</th>
+      <th className="px-3 py-2.5 text-center font-medium w-[80px] sticky left-[240px] bg-card z-10">Actions</th>
       {categoryVendors.map((v: any) => (
         <th key={v.id} className="px-4 py-2.5 text-center font-medium w-[195px]">{v.display_name}</th>
       ))}
-      <th className="px-3 py-2.5 text-center font-medium w-[80px]">Actions</th>
     </tr>
   )
 }
@@ -256,9 +279,16 @@ function SafetyRow({ domain, reputationVendors, onDelete }: { domain: any; reput
   results?.filter((r: any) => r.action_type === 'reputation').forEach((r: any) => { resultMap[r.vendor_id] = r })
 
   const checkMutation = useMutation({
-    mutationFn: (vendor: string) => jobsApi.reputation({ domain_id: domain.id }),
-    onMutate: () => toast('Verifying...', { icon: '🔍' }),
-    onError: () => toast.error('Verification failed'),
+    mutationFn: (vendor: string) => jobsApi.reputation({ domain_id: domain.id, vendor }),
+    onMutate: (vendor) => toast(`Verifying ${vendor}...`, { icon: '🔍' }),
+    onError: (_, vendor) => toast.error(`Verification failed for ${vendor}`),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['domain-results', domain.id] }),
+  })
+
+  const verifyAllMutation = useMutation({
+    mutationFn: () => jobsApi.reputation({ domain_id: domain.id }),
+    onMutate: () => toast('Verifying all reputation vendors...', { icon: '🔍' }),
+    onError: () => toast.error('Verify all failed'),
     onSettled: () => queryClient.invalidateQueries({ queryKey: ['domain-results', domain.id] }),
   })
 
@@ -271,26 +301,50 @@ function SafetyRow({ domain, reputationVendors, onDelete }: { domain: any; reput
   return (
     <tr className="border-b border-border hover:bg-[hsl(var(--table-row-hover,var(--accent)))] transition-colors">
       <td className="px-5 py-3 align-middle">
-        <span className="font-medium text-primary/90 dark:text-[hsl(265,50%,72%)]">{domain.domain}</span>
+        <Link
+          to={`/domains/${domain.id}`}
+          className="font-medium text-primary/90 dark:text-[hsl(265,50%,72%)] hover:underline"
+        >
+          {domain.domain}
+        </Link>
+      </td>
+      <td className="px-3 py-3 align-middle">
+        <div className="flex flex-col items-center gap-1">
+          <button
+            onClick={() => verifyAllMutation.mutate()}
+            className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+            title="Verify all reputation vendors"
+          >
+            <PlayCircle size={15} />
+          </button>
+          <button onClick={onDelete}
+            className="p-1.5 rounded hover:bg-destructive/15 text-muted-foreground/30 hover:text-destructive transition-colors" title="Delete">
+            <Trash2 size={13} />
+          </button>
+        </div>
       </td>
       {reputationVendors.map((v: any) => {
         const r = resultMap[v.id]
         const busy = r?.status === 'running' || r?.status === 'pending'
         const lastFailed = r?.status === 'failed'
         const manualUrl = lastFailed ? getManualUrl(v.name, 'check', domain.domain) : null
+        // Engine returns an aggregate like "Clean (0/94 harmless)" — render the
+        // parenthetical detail beside the Clean/Malicious badge.
+        const detail = !busy && r?.status === 'success' && r?.category ? extractDetail(r.category) : null
+        const badgeStatus = deriveBadgeStatus(r)
         return (
-          <td key={v.id} className="px-4 py-3 align-middle">
+          <td key={v.id} className="px-4 py-3 align-middle border-l border-border/40">
             <div className="flex flex-col gap-1">
-              <div className="flex items-center gap-2.5 h-[26px]">
+              <div className="flex items-center gap-1.5 h-[26px]">
                 <StatusBadge
-                  status={r?.status === 'success' ? 'clean' : r?.status}
+                  status={badgeStatus}
                   loading={busy}
                   onCancel={busy ? () => cancelMutation.mutate(v.name) : undefined}
                 />
                 <button
                   onClick={() => checkMutation.mutate(v.name)}
                   disabled={busy}
-                  className={`px-3 h-[26px] rounded-md text-[11px] font-medium transition-all duration-200 ${
+                  className={`px-2.5 h-[26px] rounded-md text-[11px] font-medium transition-all duration-200 ${
                     busy
                       ? 'bg-muted/40 text-muted-foreground/30 cursor-not-allowed'
                       : 'bg-secondary hover:bg-accent text-secondary-foreground hover:text-accent-foreground'
@@ -298,6 +352,11 @@ function SafetyRow({ domain, reputationVendors, onDelete }: { domain: any; reput
                 >
                   {busy ? <Loader2 size={10} className="animate-spin" /> : 'Verify'}
                 </button>
+                {detail && (
+                  <span className="text-[10px] text-muted-foreground/80 font-mono truncate" title={r.category}>
+                    {detail}
+                  </span>
+                )}
               </div>
               {manualUrl && (
                 <a
@@ -315,22 +374,14 @@ function SafetyRow({ domain, reputationVendors, onDelete }: { domain: any; reput
           </td>
         )
       })}
-      <td className="px-3 py-3 align-middle">
-        <div className="flex items-center h-[26px]">
-          <button onClick={onDelete}
-            className="px-3 h-[26px] rounded-md text-[11px] font-medium bg-secondary hover:bg-destructive/15 text-muted-foreground/50 hover:text-destructive transition-all flex items-center" title="Delete">
-            <Trash2 size={13} />
-          </button>
-        </div>
-      </td>
     </tr>
   )
 }
 
 
 /* ========== CATEGORIZATION ROW ========== */
-function CategorizationRow({ domain, categoryVendors, expanded, onToggle, onDelete }: {
-  domain: any; categoryVendors: any[]; expanded: boolean; onToggle: () => void; onDelete: () => void
+function CategorizationRow({ domain, categoryVendors, onDelete }: {
+  domain: any; categoryVendors: any[]; onDelete: () => void
 }) {
   const queryClient = useQueryClient()
   const [busyVendors, setBusyVendors] = useState<Set<string>>(new Set())
@@ -387,19 +438,37 @@ function CategorizationRow({ domain, categoryVendors, expanded, onToggle, onDele
     <>
       <tr className="border-b border-border hover:bg-[hsl(var(--table-row-hover,var(--accent)))] transition-colors">
         <td className="px-5 py-2.5 sticky left-0 bg-card z-10">
-          <div className="flex items-center gap-2">
-            <button onClick={onToggle} className="text-muted-foreground hover:text-foreground transition-colors">
-              {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          <Link
+            to={`/domains/${domain.id}`}
+            className="font-medium text-primary/90 dark:text-[hsl(265,50%,72%)] hover:underline"
+          >
+            {domain.domain}
+          </Link>
+          <div className="mt-0.5">
+            {domain.desired_category
+              ? <span className="px-1.5 py-px rounded text-[10px] font-medium bg-primary/10 text-primary/70 dark:text-[hsl(265,40%,65%)]">{domain.desired_category}</span>
+              : <span className="text-[10px] text-muted-foreground/40 italic">No category set</span>
+            }
+          </div>
+        </td>
+        <td className="px-3 py-2 text-center sticky left-[240px] bg-card z-10">
+          <div className="flex flex-col items-center gap-1">
+            <button
+              onClick={() => checkVendorMutation.mutate('__all__')}
+              className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors" title="Check All Vendors">
+              <PlayCircle size={15} />
             </button>
-            <div>
-              <span className="font-medium text-primary/90 dark:text-[hsl(265,50%,72%)]">{domain.domain}</span>
-              <div className="mt-0.5">
-                {domain.desired_category
-                  ? <span className="px-1.5 py-px rounded text-[10px] font-medium bg-primary/10 text-primary/70 dark:text-[hsl(265,40%,65%)]">{domain.desired_category}</span>
-                  : <span className="text-[10px] text-muted-foreground/40 italic">No category set</span>
-                }
-              </div>
-            </div>
+            {domain.desired_category && (
+              <button
+                onClick={() => submitVendorMutation.mutate('__all__')}
+                className="p-1.5 rounded hover:bg-primary/10 text-primary/60 hover:text-primary transition-colors" title="Submit All Vendors">
+                <SendHorizonal size={15} />
+              </button>
+            )}
+            <button onClick={onDelete}
+              className="p-1.5 rounded hover:bg-destructive/15 text-muted-foreground/30 hover:text-destructive transition-colors" title="Delete">
+              <Trash2 size={13} />
+            </button>
           </div>
         </td>
         {categoryVendors.map((v: any) => {
@@ -489,109 +558,8 @@ function CategorizationRow({ domain, categoryVendors, expanded, onToggle, onDele
             </td>
           )
         })}
-        <td className="px-3 py-2 text-center">
-          <div className="flex flex-col items-center gap-1">
-            <button
-              onClick={() => checkVendorMutation.mutate('__all__')}
-              className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors" title="Check All Vendors">
-              <PlayCircle size={15} />
-            </button>
-            {domain.desired_category && (
-              <button
-                onClick={() => submitVendorMutation.mutate('__all__')}
-                className="p-1.5 rounded hover:bg-primary/10 text-primary/60 hover:text-primary transition-colors" title="Submit All Vendors">
-                <SendHorizonal size={15} />
-              </button>
-            )}
-            <button onClick={onDelete}
-              className="p-1.5 rounded hover:bg-destructive/15 text-muted-foreground/30 hover:text-destructive transition-colors" title="Delete">
-              <Trash2 size={13} />
-            </button>
-          </div>
-        </td>
       </tr>
-
-      {expanded && (
-        <tr>
-          <td colSpan={categoryVendors.length + 2} className="px-0 py-0">
-            <DomainConfigPanel domain={domain} />
-          </td>
-        </tr>
-      )}
     </>
-  )
-}
-
-
-/* ========== DOMAIN CONFIG PANEL ========== */
-function DomainConfigPanel({ domain }: { domain: any }) {
-  const queryClient = useQueryClient()
-  const [desiredCategory, setDesiredCategory] = useState(domain.desired_category || '')
-  const [emailForSubmit, setEmailForSubmit] = useState(domain.email_for_submit || '')
-  const [notes, setNotes] = useState(domain.notes || '')
-  const [customText, setCustomText] = useState(domain.custom_text || '')
-  const [dirty, setDirty] = useState(false)
-
-  const categories = CATEGORIES
-
-  const saveMutation = useMutation({
-    mutationFn: () => domainsApi.update(domain.id, {
-      desired_category: desiredCategory || null,
-      email_for_submit: emailForSubmit || null,
-      notes: notes || null,
-      custom_text: customText || null,
-    }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['domains'] })
-      setDirty(false)
-      toast.success('Configuration saved')
-    },
-  })
-
-  const handleChange = (setter: Function) => (e: any) => {
-    setter(e.target.value)
-    setDirty(true)
-  }
-
-  return (
-    <div className="bg-[hsl(var(--table-header,var(--secondary)))] border-t border-border px-6 py-4">
-      <div className="flex items-end gap-4">
-        <div className="flex-1 min-w-[140px]">
-          <label className="block text-[11px] font-medium text-muted-foreground mb-1">Desired Category</label>
-          <select value={desiredCategory} onChange={handleChange(setDesiredCategory)}
-            className="w-full px-2.5 py-1.5 rounded border border-input bg-card text-sm focus:outline-none focus:ring-1 focus:ring-ring">
-            <option value="">None</option>
-            {categories.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
-        </div>
-        <div className="flex-1 min-w-[180px]">
-          <label className="block text-[11px] font-medium text-muted-foreground mb-1">Email for Submissions</label>
-          <input type="email" value={emailForSubmit} onChange={handleChange(setEmailForSubmit)}
-            className="w-full px-2.5 py-1.5 rounded border border-input bg-card text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-            placeholder="admin@example.com" />
-        </div>
-        <div className="flex-1 min-w-[140px]">
-          <label className="block text-[11px] font-medium text-muted-foreground mb-1">Notes</label>
-          <input type="text" value={notes} onChange={handleChange(setNotes)}
-            className="w-full px-2.5 py-1.5 rounded border border-input bg-card text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-            placeholder="Optional notes..." />
-        </div>
-        <div className="flex-1 min-w-[140px]">
-          <label className="block text-[11px] font-medium text-muted-foreground mb-1">Custom Submit Text</label>
-          <input type="text" value={customText} onChange={handleChange(setCustomText)}
-            className="w-full px-2.5 py-1.5 rounded border border-input bg-card text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-            placeholder="Custom reason..." />
-        </div>
-        <button
-          onClick={() => saveMutation.mutate()}
-          disabled={!dirty || saveMutation.isPending}
-          className="flex items-center gap-1.5 px-4 py-1.5 rounded text-sm font-medium bg-primary text-primary-foreground hover:brightness-110 transition-all disabled:opacity-40 whitespace-nowrap"
-        >
-          {saveMutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
-          Save
-        </button>
-      </div>
-    </div>
   )
 }
 

@@ -7,7 +7,7 @@ import { CATEGORIES, HIDDEN_VENDORS } from '@/lib/constants'
 import { useWebSocket } from '@/context/WebSocketContext'
 import StatusBadge from '@/components/StatusBadge'
 import CategoryBadge from '@/components/CategoryBadge'
-import { ArrowLeft, Play, Send, RefreshCw, Save } from 'lucide-react'
+import { ArrowLeft, Play, Send, RefreshCw, Save, Loader2 } from 'lucide-react'
 
 export default function DomainDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -45,8 +45,12 @@ export default function DomainDetailPage() {
   })
 
   const reputationMutation = useMutation({
-    mutationFn: () => jobsApi.reputation({ domain_id: id! }),
-    onSuccess: () => refetchResults(),
+    mutationFn: (vendor?: string) => jobsApi.reputation({ domain_id: id!, vendor }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['jobs'] })
+      refetchResults()
+    },
+    onError: (_, vendor) => toast.error(`Reputation check failed${vendor ? ` for ${vendor}` : ''}`),
   })
 
   const submitMutation = useMutation({
@@ -173,18 +177,24 @@ export default function DomainDetailPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {categoryVendors.map((vendor: any) => {
             const r = resultMap[vendor.name]
+            const busy = r?.status === 'running' || r?.status === 'pending'
+            // For category vendors, only show a status badge for non-success states
+            // (running, failed, cancelled, etc.). A successful check is conveyed by
+            // the CategoryBadge below — an extra "Success" / "Clean" badge here would
+            // be redundant and semantically wrong ("Clean" belongs to reputation).
+            const showStatusBadge = busy || (r?.status && r.status !== 'success')
             return (
               <div key={vendor.id} className="rounded-lg border border-border bg-card p-4">
                 <div className="flex items-center justify-between mb-3">
                   <h4 className="font-medium text-sm">{vendor.display_name}</h4>
-                  <StatusBadge status={r?.status} />
+                  {showStatusBadge && <StatusBadge status={r?.status} loading={busy} />}
                 </div>
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Category</span>
                     <CategoryBadge category={r?.category} desired={domain?.desired_category} />
                   </div>
-                  {r?.completed_at && (
+                  {r?.completed_at && !busy && (
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Last Check</span>
                       <span className="text-xs">{new Date(r.completed_at).toLocaleString()}</span>
@@ -192,13 +202,23 @@ export default function DomainDetailPage() {
                   )}
                 </div>
                 <div className="flex gap-1 mt-3">
-                  <button onClick={() => checkMutation.mutate(vendor.name)}
-                    className="flex-1 py-1.5 rounded text-xs font-medium border border-border hover:bg-accent text-center">
-                    Re-check
+                  <button
+                    onClick={() => checkMutation.mutate(vendor.name)}
+                    disabled={busy}
+                    className={`flex-1 py-1.5 rounded text-xs font-medium text-center transition-colors ${
+                      busy ? 'bg-muted/40 text-muted-foreground/30 cursor-not-allowed' : 'border border-border hover:bg-accent'
+                    }`}
+                  >
+                    {busy ? <Loader2 size={10} className="animate-spin inline" /> : 'Re-check'}
                   </button>
                   {vendor.supports_submit && domain?.desired_category && (
-                    <button onClick={() => submitMutation.mutate(vendor.name)}
-                      className="flex-1 py-1.5 rounded text-xs font-medium bg-primary text-primary-foreground hover:opacity-90 text-center">
+                    <button
+                      onClick={() => submitMutation.mutate(vendor.name)}
+                      disabled={busy}
+                      className={`flex-1 py-1.5 rounded text-xs font-medium text-center transition-colors ${
+                        busy ? 'bg-primary/10 text-primary/30 cursor-not-allowed' : 'bg-primary text-primary-foreground hover:opacity-90'
+                      }`}
+                    >
                       Submit
                     </button>
                   )}
@@ -215,14 +235,31 @@ export default function DomainDetailPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
           {reputationVendors.map((vendor: any) => {
             const r = resultMap[vendor.name]
+            const busy = r?.status === 'running' || r?.status === 'pending'
             return (
               <div key={vendor.id} className="rounded-lg border border-border bg-card p-4">
                 <div className="flex items-center justify-between mb-2">
                   <h4 className="font-medium text-sm">{vendor.display_name}</h4>
-                  <StatusBadge status={r?.status} />
+                  <StatusBadge status={r?.status === 'success' ? 'clean' : r?.status} loading={busy} />
                 </div>
                 {r?.reputation && <p className="text-xs text-muted-foreground">{r.reputation}</p>}
+                {r?.completed_at && !busy && (
+                  <p className="text-[10px] text-muted-foreground/60 mt-1">
+                    Last check: {new Date(r.completed_at).toLocaleString()}
+                  </p>
+                )}
                 {r?.error_message && <p className="text-xs text-red-500 mt-1 truncate">{r.error_message.split('\n')[0]}</p>}
+                <button
+                  onClick={() => reputationMutation.mutate(vendor.name)}
+                  disabled={busy}
+                  className={`w-full mt-3 py-1.5 rounded text-xs font-medium text-center transition-colors ${
+                    busy
+                      ? 'bg-muted/40 text-muted-foreground/30 cursor-not-allowed'
+                      : 'border border-border hover:bg-accent'
+                  }`}
+                >
+                  {busy ? <Loader2 size={10} className="animate-spin inline" /> : 'Re-check'}
+                </button>
               </div>
             )
           })}
