@@ -1,114 +1,191 @@
 # Classifier
-A comprehensive domain categorization and reputation checking tool leveraging stealth browser automation. It automates interaction with major security vendors to check current categorization and submit requests for recategorization, designed to bypass modern bot detections including Cloudflare and reCAPTCHA.
 
+A full-stack web application for domain **categorization**, **reputation checking**, and **recategorization requests** across major web-filtering and URL-intelligence vendors. It combines a FastAPI backend, a React dashboard, a Celery worker pool, and a headless browser automation engine that orchestrates vendor interactions through SeleniumBase (undetected-chromedriver) and BrightData's Scraping Browser.
+
+The original engine was a standalone CLI; this repo wraps it in a multi-user web platform with persistent job tracking, live WebSocket updates, role-based auth, and a manual-fallback workflow for vendors whose automation occasionally fails.
+
+## Architecture
+
+Five Docker Compose services:
+
+- **postgres** — persistent storage for domains, jobs, check results, history, users
+- **redis** — Celery broker + result backend, and WebSocket pub/sub for live job updates
+- **web** — FastAPI app (JWT auth, REST API, WebSocket endpoint), runs Alembic migrations on start
+- **worker** — Celery worker that executes vendor checks/submits via the classifier engine
+- **frontend** — React 18 + Vite + TanStack Query + Tailwind, served by nginx
+
+```
+Frontend (nginx)  ←→  Web (FastAPI)  ←→  Postgres
+                          ↕
+                        Redis  ←→  Worker (Celery)  →  Playwright / SeleniumBase
+                                                       ↓
+                                             BrightData Scraping Browser
+                                                       ↓
+                                                  Vendor websites
+```
 
 ## Features
-- **Bot detection evasion** using SeleniumBase with undetected-chromedriver to bypass Cloudflare, DataDome, and other anti-bot systems
-- **Automated CAPTCHA solving** via 2Captcha API (reCAPTCHA v2/v3/Enterprise, Cloudflare Turnstile)
-- **Multi-vendor support** for domain categorization checks and recategorization submissions across 12 security vendors
-- **API-based reputation checks** via VirusTotal, URLhaus/AbuseCH, and AbuseIPDB (no browser needed)
-- **Automatic retry logic** with up to 3 attempts per vendor on failure
-- **Headless mode** support via xvfb for server environments
 
-**Important:** Before running the script, you must fill in `helpers/credentials.py` with your 2Captcha API key, vendor login credentials (Watchguard, Talos Intelligence), and API keys (VirusTotal, AbuseIPDB, AbuseCH).
+### Vendor coverage
+| Vendor | Type | Check | Submit | Notes |
+|---|---|---|---|---|
+| TrendMicro | Category | ✓ | ✓ | SeleniumBase UC mode |
+| McAfee | Category | ✓ | ✓ | SeleniumBase UC mode |
+| Brightcloud | Category | ✓ | ✓ | SeleniumBase UC mode |
+| BlueCoat | Category | ✓ | ✓ | SeleniumBase UC mode |
+| Palo Alto | Category | ✓ | ✓ | SeleniumBase + Okta SSO + Gmail verification codes |
+| Zvelo | Category | ✓ | ✓ | SeleniumBase UC mode |
+| WatchGuard | Category | ✓ | ✓ | SeleniumBase + Azure AD B2C login |
+| Talos Intelligence | Category | ✓ | ✓ | SeleniumBase + Cisco SSO |
+| Sophos Intelix | Category | ✓ | ✓ | Playwright + BrightData Scraping Browser (hCaptcha) |
+| FortiGuard | Category | ✓ | ✓ | Playwright + BrightData + ALTCHA proof-of-work + image captcha (2Captcha/CapSolver/local OCR fallback) |
+| CheckPoint | Category | ✓ | — | SeleniumBase + Auth0 login + TOTP MFA (pyotp) |
+| VirusTotal | Reputation | ✓ | — | API, reports N/M harmless engines |
+| URLhaus (abuse.ch) | Reputation | ✓ | — | API, reports blacklist/URL counts |
+| AbuseIPDB | Reputation | ✓ | — | API, resolves domain → IP, returns abuse score |
+| Google Safe Browsing | Reputation | ✓ | — | API, threat match lookup |
 
+### Captcha chain
+`2Captcha → CapSolver → local Tesseract OCR` for image captchas; BrightData's `Captcha.solve` via CDP is used as a final fallback for hCaptcha on Sophos. Cloud provider reliability varies per vendor — see module-level comments for the current status.
 
-## Installation
-```bash
-# Run the setup script (installs system deps, Python deps, Chrome for Testing, and drivers)
-bash setup.sh
+### Workflow features
+- **Domain-centric dashboard**: per-domain cards showing how many vendors report matching / neutral / suspicious classifications, with a "View Details" link to the full domain page
+- **Live job tracking**: Celery chord pattern with both success (`finalize_job`) and error (`finalize_job_error`) callbacks so the parent job row is always finalized, even on worker kill / TimeLimitExceeded
+- **Preflight orphan sweep**: stale `running` check_result rows from killed workers are auto-failed before a new attempt starts
+- **Per-vendor cancel**: clicking the X on a running badge revokes the Celery task and restores the previous known status from check_history (so the cancelled attempt doesn't corrupt the last-known result)
+- **Manual fallback**: after automation failure, a "Manual Check" / "Manual Submit" button appears on the affected vendor cell and opens the vendor's public page in a new tab
+- **Aggregate reputation counts**: VirusTotal / URLhaus / AbuseIPDB / Safe Browsing return strings like `Clean (0/94 harmless)` or `Malicious (3/94 flagged)` displayed inline with the status badge
+- **Role-based access**: admin users can add/delete/submit, viewer users can only check/observe
 
-# Activate the virtual environment
-source .venv/bin/activate
+### Submit templates
+The request-for-recategorization comment is generated by `construct_reason_for_review_comment()` in `engine/helpers/utils.py`. Templates explicitly mention that the site is operated on behalf of a client, is live in production, and that the current classification is blocking legitimate business users behind corporate web filters — steering reviewers toward a policy-based reclassification rather than a spam dismissal.
 
-# Configure Credentials
-# Update helpers/credentials.py with your 2Captcha API key and vendor credentials (where required)
+## Setup
+
+### 1. Environment file
+Copy `.env.example` → `.env` (or create `.env` from scratch) with these keys:
+
+```env
+# Database
+DB_PASSWORD=change_me
+
+# JWT
+JWT_SECRET_KEY=at_least_32_character_random_string
+
+# Admin user created on first boot
+ADMIN_USERNAME=admin
+ADMIN_EMAIL=admin@example.local
+ADMIN_PASSWORD=change_me
+
+# Captcha solvers
+TWOCAPTCHA_API_KEY=
+CAPSOLVER_API_KEY=
+
+# BrightData (Scraping Browser for Sophos/FortiGuard)
+BRIGHTDATA_API_KEY=
+BRIGHTDATA_BROWSER_WS=wss://brd-customer-<id>-zone-<zone>:<password>@brd.superproxy.io:9222
+
+# Reputation APIs
+VIRUSTOTAL_API_KEY=
+ABUSEIPDB_API_KEY=
+URLHAUS_API_KEY=
+GOOGLE_SAFEBROWSING_API_KEY=
+
+# Vendor credentials (required for Watchguard, Palo Alto, Talos, CheckPoint)
+WATCHGUARD_USERNAME=
+WATCHGUARD_PASSWORD=
+PALOALTO_USERNAME=
+PALOALTO_PASSWORD=
+TALOS_USERNAME=
+TALOS_PASSWORD=
+GMAIL_EMAIL=
+GMAIL_APP_PASSWORD=
+CHECKPOINT_USERNAME=
+CHECKPOINT_PASSWORD=
+CHECKPOINT_TOTP_SECRET=
 ```
 
+**`.env` is git-ignored**; never commit it. See [.gitignore](.gitignore) for the full list of excluded paths.
+
+### 2. Start the stack
+```bash
+docker compose up -d --build
+```
+
+First boot runs Alembic migrations and seeds the admin user + the vendor table.
+
+### 3. Access
+- Frontend: http://localhost
+- API: http://localhost/api/v1/
+- API docs (Swagger): http://localhost/api/v1/docs (if enabled)
+
+Log in with `ADMIN_USERNAME` / `ADMIN_PASSWORD` from `.env`.
 
 ## Usage
+
+### Adding a domain
+Use the **Add Domain** button in the Domains tab (or POST `/api/v1/domains`). Set a desired category to enable the Submit button.
+
+### Running a check
+Click **Check** on a vendor cell (runs that vendor only) or the bulk actions button (runs all category vendors for that domain). The cell will show a running spinner with a cancel X; live updates stream over WebSocket.
+
+### Submitting a recategorization
+Requires admin role + the domain to have a `desired_category` set. Click **Submit** on a vendor cell; the worker navigates to the vendor's submission page, fills the form with the templated comment, solves any captcha in the chain, and records the outcome.
+
+### Handling stuck vendors
+If a vendor fails repeatedly (e.g., Sophos's hCaptcha sitekey is rejected by the cloud solvers), the Manual Check / Manual Submit buttons appear and open the vendor's public form in a new tab, pre-filled with the domain where possible.
+
+## Development
+
+### Backend
 ```bash
-# General Syntax
-python3 classifier.py --domain <domain> [options] <action>
-
-# Check category/reputation on all vendors
-python3 classifier.py --domain example.com check
-
-# Check specific vendor
-python3 classifier.py --domain example.com --vendor talosintelligence check
-
-# Submit for recategorization
-python3 classifier.py --domain example.com --vendor watchguard submit --email me@example.com --category "Information Technology"
-
-# Check reputation only
-python3 classifier.py --domain example.com reputation
+docker compose exec web bash
+alembic revision -m "description"   # generate migration
+alembic upgrade head                # apply
 ```
 
-
-**Arguments:**
-- `--domain, -d`: Target domain (Required).
-- `--vendor, -v`: Specific vendor to target (Default: all). Use `--list-vendors` to see available options.
-- `--headless`: Run browsers in headless mode (requires xvfb, see below).
-- `--list-vendors`: List all supported vendors and exit.
-
-
-**Actions:**
-- `check`: Retrieve current category and reputation.
-- `submit`: Submit a request to change the domain's category. Requires `--email` and `--category`.
-- `reputation`: Check domain reputation using API-based vendors (no browser needed). Queries VirusTotal (engine analysis + community votes), URLhaus/AbuseCH (blacklist and threat data), and AbuseIPDB (abuse reports, resolves domain to IP via DNS).
-
-
-## Headless Mode
-Headless mode requires `xvfb` to provide a virtual display for Chrome:
+### Worker / engine code changes
+The worker image bakes engine code at build time. After modifying `engine/modules/*.py` or `engine/helpers/*.py`:
 ```bash
-# Install xvfb (included in setup.sh)
-sudo apt-get install -y xvfb
-
-# Run with xvfb
-xvfb-run --auto-servernum python3 classifier.py --domain example.com --headless check
+docker compose up -d --build worker
 ```
 
+### Frontend
+Vite build happens at Docker build time; after any `.tsx` change:
+```bash
+docker compose up -d --build frontend
+```
 
-## Supported Vendors
-| Vendor | Check | Submit | Auth Required |
-|--------|-------|--------|---------------|
-| TrendMicro | Yes | Yes | No |
-| McAfee | Yes | Yes | No |
-| Brightcloud | Yes | Yes | No |
-| BlueCoat | Yes | Yes | No |
-| Palo Alto | Yes | Yes | No |
-| Zvelo | Yes | Yes | No |
-| Watchguard | Yes | Yes | Yes |
-| Talos Intelligence | Yes | Yes | Yes |
-| LightspeedSystems | Yes | No | No |
-| VirusTotal | Yes (API) | No | Yes (API key) |
-| AbuseCH / URLhaus | Yes (API) | No | Yes (Auth-Key) |
-| AbuseIPDB | Yes (API) | No | Yes (API key) |
+### Logs
+```bash
+docker compose logs -f worker         # live worker logs (Celery + vendor module output)
+docker compose logs -f web            # API requests
+docker compose logs -f frontend       # nginx access logs
+```
 
+## Repository layout
+
+```
+backend/       FastAPI app, SQLAlchemy models, Alembic migrations, Celery tasks
+engine/        Classifier engine (originally standalone CLI)
+  modules/     Per-vendor classes (check + submit methods)
+  helpers/     Shared utilities (Playwright/Selenium wrappers, captcha solver chain, logger, credentials)
+  classifier.py CLI entry point (still usable outside Docker)
+frontend/      React 18 + Vite + Tailwind dashboard
+worker/        Dockerfile for the Celery worker (Chrome + Playwright + engine)
+docker-compose.yml
+.env           (git-ignored)
+```
 
 ## Troubleshooting
-- **CAPTCHA Issues**: Ensure a valid 2Captcha API key is set in `helpers/credentials.py`.
-- **Timeouts**: Some vendors may require longer wait times due to challenge solving; the tool retries up to 3 times per vendor automatically.
-- **Chrome Not Found**: Run `bash setup.sh` to install Chrome for Testing and drivers via SeleniumBase.
-- **Headless Fails**: Make sure to run with `xvfb-run --auto-servernum` when using `--headless`.
 
+- **Sophos jobs stuck running**: Sophos's hCaptcha sitekey is rejected by 2Captcha (`ERROR_METHOD_CALL`) and CapSolver (`ERROR_INVALID_TASK_DATA`). The module skips the cloud chain and goes straight to BrightData's `Captcha.solve` — success rate is low, so the Manual Submit fallback is often the right path.
+- **FortiGuard ALTCHA doesn't verify in 60s**: proof-of-work is CPU-bound in the remote browser; retrying usually resolves it. The submit flow now retries the whole form 5 times.
+- **CheckPoint login loop**: the user-center requires Auth0 identifier → password → TOTP MFA. Ensure `CHECKPOINT_USERNAME`, `CHECKPOINT_PASSWORD`, and `CHECKPOINT_TOTP_SECRET` (the base32 authenticator seed, not a generated code) are all set in `.env`.
+- **Orphan running rows after a crash**: the preflight `sweep_orphan_running()` in `backend/app/tasks/vendor_tasks.py` will auto-fail them on the next attempt; the `finalize_job_error` chord callback catches worker kills.
+- **Job marked "success" but the log says "not confirmed"**: this was a FortiGuard submit bug fixed in the current version — the submit flow now raises an exception when no confirmation marker appears, so the `check_result` row correctly reflects failure.
 
-## Adding a New Vendor
-1. Create a new module in `modules/` with a class implementing `check(driver, url, return_reputation_only)` and optionally `submit(driver, url, email, category)`
-2. Import and register it in `classifier.py`: add to imports, `init_vendors()` class list, and both `check_vendors` and `submit_vendors` lists in `parse_args()`
-3. Add vendor-specific category mappings to `helpers/constants.py` if the vendor supports submit
-4. Add any required credentials to `helpers/credentials.py`
-
-
-## Available Categories
-Use `--list-vendors` with an action to see which vendors support it:
-```bash
-# List vendors that support check
-python3 classifier.py --domain example.com --list-vendors check
-
-# List vendors that support submit
-python3 classifier.py --domain example.com --list-vendors submit
-```
-
-## Further development
-If you find any bug, please open a pull request and I'll try to act as quick as possible.
+## Security notes
+- JWT secret and DB password **must** be rotated from the defaults in `.env.example` before any non-local deployment.
+- The engine performs authenticated sessions against multiple vendor portals; vendor credentials are loaded from env vars into the engine's `helpers/credentials` module at task start.
+- The classifier is intended for legitimate SEO / corporate filter whitelisting use. Do not use it to abuse vendor review queues.

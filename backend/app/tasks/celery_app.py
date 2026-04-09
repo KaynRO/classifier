@@ -13,7 +13,10 @@ celery_app.conf.update(
     accept_content=["json"],
     worker_concurrency=2,
     worker_prefetch_multiplier=1,
-    task_acks_late=True,
+    # acks_late=False: if the worker dies mid-task, Celery does NOT re-deliver.
+    # We'd rather fail fast and let the user re-trigger than silently re-run
+    # a stale browser-automation task from attempt 1 on a fresh worker.
+    task_acks_late=False,
     task_time_limit=1500,
     task_soft_time_limit=1440,
     task_default_rate_limit="6/m",

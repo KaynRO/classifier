@@ -49,7 +49,7 @@ export const domainsApi = {
 // --- Jobs ---
 export const jobsApi = {
   check: (data: { domain_id: string; vendor?: string }) => api.post('/jobs/check', data),
-  reputation: (data: { domain_id: string }) => api.post('/jobs/reputation', data),
+  reputation: (data: { domain_id: string; vendor?: string }) => api.post('/jobs/reputation', data),
   submit: (data: { domain_id: string; vendor?: string }) => api.post('/jobs/submit', data),
   bulkCheck: (vendor?: string) => api.post('/jobs/bulk-check', null, { params: { vendor } }),
   get: (id: string) => api.get(`/jobs/${id}`),

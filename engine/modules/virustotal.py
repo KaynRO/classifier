@@ -10,11 +10,10 @@ class VirusTotal:
         self.api_key = virustotal_api_key
 
 
-    def check(self, domain: str) -> None:
+    def check(self, domain: str) -> str:
         try:
             self.logger.info(f" Targeting virustotal ".center(60, "="))
 
-            # Strip protocol prefix — API expects bare domain
             clean_domain = domain.replace("https://", "").replace("http://", "").strip("/")
 
             url = f"{self.api_address}{clean_domain}"
@@ -26,22 +25,30 @@ class VirusTotal:
                 data = response.json()
             except json.JSONDecodeError as e:
                 self.logger.error(f"[-] Error decoding JSON response: {e}")
-                return
+                return "Error"
 
             attrs = data["data"]["attributes"]
-
-            # Log analysis statistics
             stats = attrs["last_analysis_stats"]
-            self.logger.info(f"[*] Harmless: {stats['harmless']}  Malicious: {stats['malicious']}  Suspicious: {stats['suspicious']}  Undetected: {stats['undetected']}  Timeout: {stats['timeout']}")
+            harmless = stats.get("harmless", 0)
+            malicious = stats.get("malicious", 0)
+            suspicious = stats.get("suspicious", 0)
+            undetected = stats.get("undetected", 0)
+            timeout_count = stats.get("timeout", 0)
+            total = harmless + malicious + suspicious + undetected + timeout_count
 
-            # Log reputation votes
-            votes = attrs["total_votes"]
-            self.logger.success(f"[+] Community votes — Harmless: {votes['harmless']}  Malicious: {votes['malicious']}")
+            self.logger.info(
+                f"[*] Harmless: {harmless}  Malicious: {malicious}  Suspicious: {suspicious}  "
+                f"Undetected: {undetected}  Timeout: {timeout_count}"
+            )
 
-            # Log flagged engines (only malicious/suspicious)
+            votes = attrs.get("total_votes", {})
+            self.logger.success(
+                f"[+] Community votes — Harmless: {votes.get('harmless', 0)}  Malicious: {votes.get('malicious', 0)}"
+            )
+
             flagged = {
                 checker: result["result"]
-                for checker, result in attrs["last_analysis_results"].items()
+                for checker, result in attrs.get("last_analysis_results", {}).items()
                 if result["category"] in ("malicious", "suspicious")
             }
             if flagged:
@@ -51,7 +58,16 @@ class VirusTotal:
             else:
                 self.logger.success("[+] Not flagged by any engine")
 
+            flagged_count = malicious + suspicious
+            if flagged_count == 0:
+                return f"Clean ({harmless}/{total} harmless)"
+            if malicious > 0:
+                return f"Malicious ({flagged_count}/{total} flagged)"
+            return f"Suspicious ({flagged_count}/{total} flagged)"
+
         except requests.exceptions.RequestException as e:
             self.logger.error(f"[-] RequestException: {e}")
+            return "Error"
         except Exception as e:
             self.logger.error(f"[-] An unexpected error occurred: {e}")
+            return "Error"

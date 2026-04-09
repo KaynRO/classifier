@@ -13,9 +13,9 @@ SBR_WS = os.environ.get(
 TARGET_URL = "https://www.fortiguard.com/webfilter"
 
 
-def _ocr_captcha(image_path: str, logger: Logger) -> Optional[str]:
-    """OCR the captcha image with multi-strategy preprocessing.
-    Returns the most frequently detected code, or None."""
+def ocr_captcha(image_path: str, logger: Logger) -> Optional[str]:
+    # Multi-strategy preprocessing: threshold sweep across R/G/B/L channels,
+    # then majority-vote the Tesseract results.
     try:
         import pytesseract
         from PIL import Image, ImageFilter, ImageEnhance
@@ -98,11 +98,10 @@ def _solve_captcha_with_chain(captcha_path: str, logger: Logger) -> Optional[str
 
     # Priority 3: local Tesseract OCR as last resort
     logger.info("[*] Cloud solvers exhausted, falling back to local OCR")
-    return _ocr_captcha(captcha_path, logger)
+    return ocr_captcha(captcha_path, logger)
 
 
 def _extract_captcha_image(page) -> Optional[str]:
-    """Extract captcha image from shadow DOM, return base64-encoded PNG bytes path."""
     img_src = page.evaluate("""() => {
         const cw = document.querySelector('captcha-widget, #captcha_widget');
         if (!cw || !cw.shadowRoot) return null;
@@ -119,8 +118,7 @@ def _extract_captcha_image(page) -> Optional[str]:
     return None
 
 
-def _enter_captcha_and_submit(page, code: str):
-    """Enter captcha code into shadow DOM input and click submit."""
+def _enter_captcha_and_submit(page, code: str) -> str:
     return page.evaluate("""(code) => {
         const cw = document.querySelector('captcha-widget, #captcha_widget');
         if (!cw || !cw.shadowRoot) return 'no shadow root';
@@ -146,7 +144,7 @@ def _enter_captcha_and_submit(page, code: str):
 
 
 def _extract_category(body_text: str) -> str:
-    """Extract FortiGuard category AND risk level, returns 'Category | Risk Level'."""
+    # Returns "Category | Risk Level" when both are present, just the category otherwise.
     category = None
     risk_level = None
 
@@ -180,7 +178,6 @@ def _extract_category(body_text: str) -> str:
 
 
 def _fill_form(page, domain: str, logger: Logger) -> bool:
-    """Fill URL input and solve ALTCHA. Returns True if ALTCHA verified."""
     url_input = page.query_selector('input[name="url"]')
     if not url_input:
         logger.error("[-] URL input not found")
@@ -211,8 +208,7 @@ class FortiGuard:
         self.url = TARGET_URL
 
     def check(self, driver, target_url: str, return_reputation_only: bool = False) -> Optional[str]:
-        """Check URL category on FortiGuard via BrightData Scraping Browser.
-        The `driver` argument is ignored — we use Playwright instead."""
+        # driver is ignored — we use Playwright + BrightData Scraping Browser.
         self.logger.info(f" Targeting fortiguard ".center(60, "="))
         self.logger.info(f"[*] Using BrightData Scraping Browser")
 
@@ -299,10 +295,55 @@ class FortiGuard:
             self.logger.error(traceback.format_exc())
             return "Error"
 
+    def _fill_submit_form(self, page, clean_url: str, vendor_category: str, email: str, reason: str) -> bool:
+        # Fill the submit form and run ALTCHA proof-of-work.
+        # Returns True if ALTCHA verified within 60s.
+        try:
+            page.evaluate('document.querySelector("altcha-widget")?.scrollIntoView()')
+            time.sleep(2)
+
+            page.fill("#web_filter_rating_info_form_url", clean_url)
+            self.logger.info(f"[*] Entered URL: {clean_url}")
+
+            page.select_option("#web_filter_rating_info_form_categorysuggestion", label=vendor_category)
+            self.logger.info(f"[*] Selected category: {vendor_category}")
+
+            page.fill("#web_filter_rating_info_form_name", "URL Classifier")
+            page.fill("#web_filter_rating_info_form_email", email or "admin@example.com")
+            page.fill("#web_filter_rating_info_form_companyname", "URL Classifier")
+            page.fill("#web_filter_rating_info_form_comment", reason)
+            self.logger.info("[*] Filled contact fields")
+        except Exception as e:
+            self.logger.error(f"[-] Form fill failed: {e}")
+            return False
+
+        try:
+            altcha = page.query_selector("altcha-widget")
+            if altcha:
+                box = altcha.bounding_box()
+                if box:
+                    page.mouse.click(box["x"] + 20, box["y"] + box["height"] / 2)
+                    self.logger.info("[*] Clicked ALTCHA widget")
+        except Exception as e:
+            self.logger.debug(f"[*] ALTCHA click failed: {e}")
+
+        self.logger.info("[*] Waiting for ALTCHA proof-of-work...")
+        for i in range(60):
+            time.sleep(1)
+            state = page.evaluate(
+                '() => { const w = document.querySelector("altcha-widget"); if(!w) return null; const m = w.outerHTML.match(/data-state="([^"]+)"/); return m ? m[1] : null; }'
+            )
+            if state == "verified":
+                self.logger.success(f"[+] ALTCHA verified after {i+1}s")
+                return True
+        self.logger.warning("[!] ALTCHA did not verify in 60s")
+        return False
+
+
     def submit(self, driver, url: str, email: str, category: str) -> None:
-        """Submit URL recategorization request via FortiGuard's form.
-        URL: https://www.fortiguard.com/faq/wfratingsubmit
-        Has ALTCHA proof-of-work captcha (auto-solved by widget)."""
+        # Submit URL recategorization request via FortiGuard's form.
+        # Retries up to 5 times (matching the check flow): each attempt re-navigates,
+        # re-fills the form, re-runs ALTCHA PoW, and drives the image-captcha loop.
         self.logger.info(f" Targeting fortiguard (submit) ".center(60, "="))
 
         try:
@@ -315,108 +356,89 @@ class FortiGuard:
         vendor_category = categories_map.get(category, {}).get("FortiGuard", category)
         reason = construct_reason_for_review_comment(clean_url, vendor_category, simple_message=True)
 
+        success_markers = ("success", "thank", "received", "submitted")
+        last_error: Optional[str] = None
+
         try:
             with sync_playwright() as p:
                 browser = p.chromium.connect_over_cdp(SBR_WS)
-                page = browser.new_page()
-                page.set_default_timeout(60000)
 
-                self.logger.info(f"[*] Navigating to {submit_url}")
-                page.goto(submit_url, wait_until="domcontentloaded", timeout=60000)
-                time.sleep(8)  # Let ALTCHA widget initialize
-
-                # Scroll to ALTCHA to ensure it's rendered
-                page.evaluate('document.querySelector("altcha-widget")?.scrollIntoView()')
-                time.sleep(2)
-
-                # Fill required fields
-                try:
-                    page.fill("#web_filter_rating_info_form_url", clean_url)
-                    self.logger.info(f"[*] Entered URL: {clean_url}")
-
-                    # Suggested category dropdown
-                    page.select_option("#web_filter_rating_info_form_categorysuggestion", label=vendor_category)
-                    self.logger.info(f"[*] Selected category: {vendor_category}")
-
-                    page.fill("#web_filter_rating_info_form_name", "URL Classifier")
-                    page.fill("#web_filter_rating_info_form_email", email or "admin@example.com")
-                    page.fill("#web_filter_rating_info_form_companyname", "URL Classifier")
-                    page.fill("#web_filter_rating_info_form_comment", reason)
-                    self.logger.info("[*] Filled contact fields")
-                except Exception as e:
-                    self.logger.error(f"[-] Form fill failed: {e}")
-                    raise
-
-                # Click the ALTCHA widget (mouse click triggers PoW)
-                try:
-                    altcha = page.query_selector("altcha-widget")
-                    if altcha:
-                        box = altcha.bounding_box()
-                        if box:
-                            page.mouse.click(box["x"] + 20, box["y"] + box["height"] / 2)
-                            self.logger.info("[*] Clicked ALTCHA widget")
-                except Exception as e:
-                    self.logger.debug(f"[*] ALTCHA click failed: {e}")
-
-                # Wait for ALTCHA widget data-state to become "verified" (typically 10-30s)
-                self.logger.info("[*] Waiting for ALTCHA proof-of-work...")
-                verified = False
-                for i in range(60):
-                    time.sleep(1)
-                    state = page.evaluate(
-                        '() => { const w = document.querySelector("altcha-widget"); if(!w) return null; const m = w.outerHTML.match(/data-state="([^"]+)"/); return m ? m[1] : null; }'
-                    )
-                    if state == "verified":
-                        self.logger.success(f"[+] ALTCHA verified after {i+1}s")
-                        verified = True
-                        break
-                if not verified:
-                    self.logger.warning("[!] ALTCHA did not verify in 60s, trying to submit anyway")
-
-                # Click submit button — triggers image captcha
-                try:
-                    page.click("#web_filter_rating_info_form_submit")
-                    self.logger.info("[*] Clicked submit (will trigger image captcha)")
-                    time.sleep(5)
-                except Exception as e:
-                    self.logger.error(f"[-] Submit click failed: {e}")
-                    raise
-
-                # Now solve the image captcha (same as check flow)
-                solved = False
                 for attempt in range(1, 6):
-                    self.logger.info(f"[*] Image captcha attempt {attempt}/5")
+                    self.logger.info(f"[*] Submit attempt {attempt}/5")
+                    page = browser.new_page()
+                    page.set_default_timeout(60000)
 
-                    captcha_path = _extract_captcha_image(page)
-                    if not captcha_path:
-                        self.logger.info("[*] No image captcha — submission may already be complete")
+                    try:
+                        self.logger.info(f"[*] Navigating to {submit_url}")
+                        page.goto(submit_url, wait_until="domcontentloaded", timeout=60000)
+                        time.sleep(8)
+
+                        if not self._fill_submit_form(page, clean_url, vendor_category, email, reason):
+                            last_error = "ALTCHA/form setup failed"
+                            continue
+
+                        try:
+                            page.click("#web_filter_rating_info_form_submit")
+                            self.logger.info("[*] Clicked submit (will trigger image captcha)")
+                            time.sleep(5)
+                        except Exception as e:
+                            last_error = f"Submit click failed: {e}"
+                            self.logger.error(f"[-] {last_error}")
+                            continue
+
+                        # Immediate confirmation (no captcha shown)
                         body = page.inner_text("body").lower()
-                        if "success" in body or "thank" in body or "received" in body or "submitted" in body:
-                            self.logger.success("[+] FortiGuard submission accepted")
-                            solved = True
-                        break
+                        if any(m in body for m in success_markers) and "security check" not in body:
+                            self.logger.success(f"[+] FortiGuard submission accepted (attempt {attempt})")
+                            browser.close()
+                            return
 
-                    code = _solve_captcha_with_chain(captcha_path, self.logger)
-                    if not code:
-                        self.logger.warning("[!] All solvers failed, refreshing captcha")
-                        continue
+                        # Drive the image-captcha loop (up to 5 sub-attempts per outer attempt)
+                        for cap_attempt in range(1, 6):
+                            self.logger.info(f"[*] Image captcha sub-attempt {cap_attempt}/5")
+                            captcha_path = _extract_captcha_image(page)
+                            if not captcha_path:
+                                body = page.inner_text("body").lower()
+                                if any(m in body for m in success_markers) and "security check" not in body:
+                                    self.logger.success(f"[+] FortiGuard submission accepted (attempt {attempt})")
+                                    browser.close()
+                                    return
+                                self.logger.warning("[!] No captcha image and no confirmation — retrying")
+                                break
 
-                    _enter_captcha_and_submit(page, code)
-                    time.sleep(5)
+                            code = _solve_captcha_with_chain(captcha_path, self.logger)
+                            if not code:
+                                self.logger.warning("[!] All solvers failed, refreshing captcha")
+                                continue
 
-                    body = page.inner_text("body").lower()
-                    if "success" in body or "thank" in body or "received" in body or "submitted" in body:
-                        self.logger.success(f"[+] FortiGuard submission accepted (attempt {attempt})")
-                        solved = True
-                        break
-                    elif "security check failed" in body:
-                        self.logger.warning(f"[!] Wrong captcha on attempt {attempt}")
+                            _enter_captcha_and_submit(page, code)
+                            time.sleep(5)
 
-                if not solved:
-                    self.logger.warning("[!] Submission could not be confirmed")
+                            body = page.inner_text("body").lower()
+                            if any(m in body for m in success_markers) and "security check" not in body:
+                                self.logger.success(f"[+] FortiGuard submission accepted (attempt {attempt})")
+                                browser.close()
+                                return
+                            if "security check failed" in body:
+                                self.logger.warning(f"[!] Security check failed on sub-attempt {cap_attempt}")
+                                last_error = "Security check failed"
+                                break
+
+                        last_error = last_error or "No confirmation received"
+
+                    except Exception as e:
+                        last_error = str(e)
+                        self.logger.warning(f"[!] Attempt {attempt} errored: {e}")
+                    finally:
+                        try:
+                            page.close()
+                        except Exception:
+                            pass
 
                 browser.close()
 
         except Exception as e:
             self.logger.error(f"[-] FortiGuard submit failed: {e}")
             raise
+
+        raise Exception(f"FortiGuard submit failed after 5 attempts: {last_error or 'no confirmation'}")

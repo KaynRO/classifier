@@ -53,7 +53,15 @@ class DomainCreate(BaseModel):
     @field_validator("domain")
     @classmethod
     def validate_domain(cls, v: str) -> str:
-        v = v.strip().lower().lstrip("https://").lstrip("http://").rstrip("/")
+        # lstrip("https://") would treat the argument as a CHARACTER SET and
+        # chew off any leading h/t/p/s/:/ from the domain — e.g. "salt-bank.com"
+        # would silently become "alt-bank.com". Use explicit prefix removal.
+        v = v.strip().lower()
+        for prefix in ("https://", "http://"):
+            if v.startswith(prefix):
+                v = v[len(prefix):]
+                break
+        v = v.rstrip("/")
         if not DOMAIN_RE.match(v):
             raise ValueError("Invalid domain format")
         return v

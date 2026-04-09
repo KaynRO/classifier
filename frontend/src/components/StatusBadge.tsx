@@ -17,7 +17,7 @@ const styles: Record<string, string> = {
 // Standardized Title Case labels
 const labels: Record<string, string> = {
   clean: 'Clean',
-  success: 'Clean',
+  success: 'Success',
   completed: 'Completed',
   failed: 'Failed',
   error: 'Error',

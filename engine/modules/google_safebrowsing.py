@@ -10,7 +10,7 @@ class GoogleSafeBrowsing:
         self.api_key = google_safebrowsing_api_key
 
 
-    def check(self, domain: str) -> None:
+    def check(self, domain: str) -> str:
         try:
             self.logger.info(f" Targeting google safe browsing ".center(60, "="))
 
@@ -18,31 +18,28 @@ class GoogleSafeBrowsing:
             url_to_check = f"https://{clean_domain}/"
 
             payload = {
-                "client": {
-                    "clientId": "classifier",
-                    "clientVersion": "1.0"
-                },
+                "client": {"clientId": "classifier", "clientVersion": "1.0"},
                 "threatInfo": {
                     "threatTypes": [
                         "MALWARE",
                         "SOCIAL_ENGINEERING",
                         "UNWANTED_SOFTWARE",
-                        "POTENTIALLY_HARMFUL_APPLICATION"
+                        "POTENTIALLY_HARMFUL_APPLICATION",
                     ],
                     "platformTypes": ["ANY_PLATFORM"],
                     "threatEntryTypes": ["URL"],
                     "threatEntries": [
                         {"url": url_to_check},
-                        {"url": f"http://{clean_domain}/"}
-                    ]
-                }
+                        {"url": f"http://{clean_domain}/"},
+                    ],
+                },
             }
 
             response = requests.post(
                 self.api_url,
                 params={"key": self.api_key},
                 headers={"Content-Type": "application/json"},
-                json=payload
+                json=payload,
             )
             response.raise_for_status()
 
@@ -50,13 +47,15 @@ class GoogleSafeBrowsing:
                 data = response.json()
             except json.JSONDecodeError as e:
                 self.logger.error(f"[-] Error decoding JSON response: {e}")
-                return
+                return "Error"
 
             matches = data.get("matches", [])
+            # Google Safe Browsing checks against 4 threat categories per URL (2 URLs = 8 checks)
+            total_checks = 8
 
             if not matches:
                 self.logger.success("[+] Clean — no threats detected")
-                return
+                return f"Clean (0/{total_checks} threats)"
 
             self.logger.warning(f"[!] Flagged with {len(matches)} threat(s):")
             for match in matches:
@@ -65,7 +64,11 @@ class GoogleSafeBrowsing:
                 threat_url = match.get("threat", {}).get("url", "N/A")
                 self.logger.warning(f"    Threat: {threat_type}  Platform: {platform}  URL: {threat_url}")
 
+            return f"Malicious ({len(matches)}/{total_checks} threats)"
+
         except requests.exceptions.RequestException as e:
             self.logger.error(f"[-] RequestException: {e}")
+            return "Error"
         except Exception as e:
             self.logger.error(f"[-] An unexpected error occurred: {e}")
+            return "Error"

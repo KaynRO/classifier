@@ -1,5 +1,4 @@
-import requests
-import dns.resolver
+import requests, dns.resolver
 from helpers.logger import *
 from helpers.credentials import *
 
@@ -29,13 +28,13 @@ class AbuseIpDB:
             return ""
 
 
-    def check(self, domain: str, maxAgeInDays: int = 30) -> None:
+    def check(self, domain: str, maxAgeInDays: int = 30) -> str:
         try:
             self.logger.info(f" Targeting abuseipdb ".center(60, "="))
 
             ip = self.resolve_domain(domain)
             if not ip:
-                return
+                return "Error (DNS)"
 
             response = requests.get(
                 f"{self.url}check",
@@ -57,13 +56,17 @@ class AbuseIpDB:
 
             if abuse_score == 0 and total_reports == 0:
                 self.logger.success("[+] Clean — no abuse reports")
-            elif abuse_score > 50:
+                return f"Clean (0 reports, 0%)"
+            if abuse_score > 50:
                 self.logger.warning(f"[!] High abuse confidence score: {abuse_score}%")
-            else:
-                self.logger.info(f"[*] Low-moderate abuse score: {abuse_score}%")
+                return f"Malicious ({total_reports} reports, {abuse_score}%)"
+            self.logger.info(f"[*] Low-moderate abuse score: {abuse_score}%")
+            return f"Suspicious ({total_reports} reports, {abuse_score}%)"
 
         except requests.exceptions.RequestException as e:
             self.logger.error(f"[-] RequestException: {e}")
+            return "Error"
         except Exception as e:
             self.logger.error(f"[-] An unexpected error occurred: {e}")
+            return "Error"
 

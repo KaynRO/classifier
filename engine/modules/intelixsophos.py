@@ -21,8 +21,6 @@ class Intelixsophos:
         self.url = TARGET_URL
 
     def check(self, driver, target_url: str, return_reputation_only: bool = False) -> Optional[str]:
-        """Check URL on Sophos Intelix via BrightData Scraping Browser.
-        BrightData auto-solves hCaptcha. Retries up to 6 times due to ~17% success rate."""
         self.logger.info(f" Targeting intelixsophos ".center(60, "="))
         self.logger.info("[*] Using BrightData Scraping Browser")
 
@@ -37,9 +35,13 @@ class Intelixsophos:
         if not clean_url.startswith(("http://", "https://")):
             clean_url = f"https://{clean_url}"
 
-        # Retry up to 8 times — BrightData's hCaptcha auto-solver has ~17% success rate
-        for attempt in range(1, 9):
-            self.logger.info(f"[*] Attempt {attempt}/8")
+        # Retry up to 3 times. Both 2Captcha and CapSolver reject Sophos's hCaptcha
+        # sitekey outright, so cloud solvers are a no-op here — every attempt is really
+        # a BrightData Captcha.solve run (~3 min), which itself only rarely enables the
+        # submit button. 3 attempts ≈ 10 minutes of real work, which fits the Celery
+        # hard time limit comfortably and falls back to the manual-submit UI quickly.
+        for attempt in range(1, 4):
+            self.logger.info(f"[*] Attempt {attempt}/3")
             try:
                 result = self._try_check(clean_url, attempt)
                 if result and result not in ["Captcha Failed", "Timeout"]:
@@ -47,7 +49,7 @@ class Intelixsophos:
             except Exception as e:
                 self.logger.warning(f"[!] Attempt {attempt} error: {e}")
 
-        self.logger.error("[-] All 8 attempts exhausted")
+        self.logger.error("[-] All 3 attempts exhausted")
         return "Captcha Failed"
 
     def _try_check(self, clean_url: str, attempt: int) -> Optional[str]:
@@ -87,47 +89,27 @@ class Intelixsophos:
                     return None
                 time.sleep(2)
 
-                # Cloud solver chain: 2Captcha → CapSolver
+                # Sophos's hCaptcha sitekey is rejected by 2Captcha (ERROR_METHOD_CALL)
+                # and blocklisted by CapSolver (ERROR_INVALID_TASK_DATA), so going
+                # straight to BrightData's Captcha.solve is the only option that has
+                # any chance — and it's what we'd fall back to anyway.
                 btn_enabled = False
-                self.logger.info("[*] Trying cloud hCaptcha solvers (2Captcha → CapSolver)...")
-                solver = get_dual_solver()
-                token = solver.solve_hcaptcha_chain(HCAPTCHA_SITEKEY, self.url)
-                if token:
-                    self.logger.info(f"[*] Got cloud token ({len(token)} chars), injecting...")
-                    page.evaluate("""(token) => {
-                        document.querySelectorAll('textarea[name="h-captcha-response"], textarea[name="g-recaptcha-response"]').forEach(el => {
-                            el.value = token;
-                            el.innerHTML = token;
-                            el.dispatchEvent(new Event('input', {bubbles: true}));
-                            el.dispatchEvent(new Event('change', {bubbles: true}));
-                        });
-                    }""", token)
-                    time.sleep(3)
+                self.logger.info("[*] Using BrightData Captcha.solve (Sophos hCaptcha is unsupported by cloud APIs)")
+                try:
+                    client = page.context.new_cdp_session(page)
+                    result = client.send("Captcha.solve", {"detectTimeout": 60000})
+                    self.logger.info(f"[*] Captcha.solve returned: {result}")
+                except Exception as e:
+                    self.logger.warning(f"[!] BrightData Captcha.solve error: {e}")
+
+                for i in range(30):
+                    time.sleep(1)
                     btn_enabled = page.evaluate(
                         '() => { const b = document.querySelector("button.submit-button"); return b && !b.disabled && !b.classList.contains("p-disabled"); }'
                     )
                     if btn_enabled:
-                        self.logger.success("[+] Cloud token accepted, button enabled")
-
-                # Priority 3 (fallback): BrightData Captcha.solve
-                if not btn_enabled:
-                    self.logger.info("[*] Cloud solvers failed, falling back to BrightData Captcha.solve...")
-                    try:
-                        client = page.context.new_cdp_session(page)
-                        result = client.send("Captcha.solve", {"detectTimeout": 60000})
-                        self.logger.info(f"[*] Captcha.solve returned: {result}")
-                    except Exception as e:
-                        self.logger.warning(f"[!] BrightData Captcha.solve error: {e}")
-
-                    # Poll for button enable
-                    for i in range(30):
-                        time.sleep(1)
-                        btn_enabled = page.evaluate(
-                            '() => { const b = document.querySelector("button.submit-button"); return b && !b.disabled && !b.classList.contains("p-disabled"); }'
-                        )
-                        if btn_enabled:
-                            self.logger.success(f"[+] BrightData solved after {i+1}s")
-                            break
+                        self.logger.success(f"[+] BrightData solved after {i+1}s")
+                        break
 
                 if not btn_enabled:
                     self.logger.warning("[!] Button still disabled after all solvers")
@@ -171,8 +153,7 @@ class Intelixsophos:
                     pass
 
     def _extract_category(self, page, body_text: str) -> Optional[str]:
-        """Extract category from the Sophos report page."""
-        # Try to find the category tag/badge in the header
+        # Try to find the category tag/badge in the header first, then fall back to text parsing.
         try:
             tags = page.query_selector_all('.p-tag, .verdict-tag, [class*="category"]')
             for t in tags:
@@ -198,9 +179,7 @@ class Intelixsophos:
         return None
 
     def submit(self, driver, url: str, email: str, category: str) -> None:
-        """Submit URL recategorization request via Sophos support form.
-        Uses https://support.sophos.com/support/s/filesubmission (Web Address tab).
-        Salesforce Lightning form — requires Playwright."""
+        # Posts to https://support.sophos.com/support/s/filesubmission (Salesforce Lightning form).
         self.logger.info(f" Targeting intelixsophos (submit) ".center(60, "="))
 
         try:
