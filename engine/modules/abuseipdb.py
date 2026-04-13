@@ -54,14 +54,17 @@ class AbuseIpDB:
             self.logger.debug(f"[*] IP: {ip}  ISP: {isp}  Country: {country}")
             self.logger.info(f"[*] Reports: {total_reports}  Abuse score: {abuse_score}%  Whitelisted: {is_whitelisted}")
 
-            if abuse_score == 0 and total_reports == 0:
-                self.logger.success("[+] Clean — no abuse reports")
-                return f"Clean (0 reports, 0%)"
+            # AbuseIPDB's confidence score (0-100) is what matters — it already weighs the
+            # quality and recency of reports. Clean → no parenthetical (keeps the UI quiet);
+            # suspicious/malicious → include the score + report count so the user can gauge severity.
+            if abuse_score == 0:
+                self.logger.success(f"[+] Clean — {total_reports} reports, score 0%")
+                return "Clean"
             if abuse_score > 50:
                 self.logger.warning(f"[!] High abuse confidence score: {abuse_score}%")
-                return f"Malicious ({total_reports} reports, {abuse_score}%)"
+                return f"Malicious ({abuse_score}% confidence, {total_reports} reports)"
             self.logger.info(f"[*] Low-moderate abuse score: {abuse_score}%")
-            return f"Suspicious ({total_reports} reports, {abuse_score}%)"
+            return f"Suspicious ({abuse_score}% confidence, {total_reports} reports)"
 
         except requests.exceptions.RequestException as e:
             self.logger.error(f"[-] RequestException: {e}")

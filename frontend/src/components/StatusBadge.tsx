@@ -5,22 +5,27 @@ const styles: Record<string, string> = {
   clean: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
   success: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
   completed: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
+  malicious: 'bg-red-500/20 text-red-400 border-red-500/30',
   failed: 'bg-red-500/20 text-red-400 border-red-500/30',
   error: 'bg-red-500/20 text-red-400 border-red-500/30',
+  suspicious: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
+  warning: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
   running: 'bg-sky-500/20 text-sky-400 border-sky-500/30',
-  pending: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
-  submitted: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
+  pending: 'bg-sky-500/20 text-sky-400 border-sky-500/30',
+  submitted: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30',
   uncategorized: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
   cancelled: 'bg-neutral-500/20 text-neutral-400 border-neutral-500/30',
 }
 
-// Standardized Title Case labels
 const labels: Record<string, string> = {
   clean: 'Clean',
   success: 'Success',
   completed: 'Completed',
+  malicious: 'Malicious',
   failed: 'Failed',
   error: 'Error',
+  suspicious: 'Suspicious',
+  warning: 'Warning',
   running: 'Running',
   pending: 'Pending',
   submitted: 'Submitted',
@@ -35,6 +40,9 @@ interface Props {
 }
 
 export default function StatusBadge({ status, loading, onCancel }: Props) {
+  // Only `running` and an explicit `loading` prop trigger the spinner.
+  // `pending` (job queued but not started) also shows the spinner — but
+  // NEVER `suspicious` or any other terminal state.
   const isRunning = loading || status === 'running' || status === 'pending'
 
   if (isRunning) {
@@ -59,7 +67,8 @@ export default function StatusBadge({ status, loading, onCancel }: Props) {
   return (
     <span className={cn(
       'inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium border',
-      styles[status] || styles.pending
+      // Unknown statuses fall back to a neutral slate, NOT running/pending sky
+      styles[status] || 'bg-slate-500/20 text-slate-400 border-slate-500/30'
     )}>
       {label}
     </span>

@@ -23,8 +23,19 @@ export default function DomainDetailPage() {
   const { data: results, refetch: refetchResults } = useQuery({
     queryKey: ['domain-results', id],
     queryFn: () => domainsApi.results(id!).then(r => r.data),
-    refetchInterval: 5000,
+    refetchInterval: 2000,
   })
+
+  // Optimistic "just clicked" tracker: vendor name → true for ~1.5s after a
+  // re-check/submit click, so the card shows the running badge even if the
+  // next refetch hasn't yet caught the worker's 'running' row write.
+  const [pendingVendors, setPendingVendors] = useState<Set<string>>(new Set())
+  const markPending = (vendor: string) => {
+    setPendingVendors(prev => { const next = new Set(prev); next.add(vendor); return next })
+    setTimeout(() => {
+      setPendingVendors(prev => { const next = new Set(prev); next.delete(vendor); return next })
+    }, 15000)
+  }
 
   const { data: vendors } = useQuery({
     queryKey: ['vendors'],
@@ -38,6 +49,7 @@ export default function DomainDetailPage() {
 
   const checkMutation = useMutation({
     mutationFn: (vendor?: string) => jobsApi.check({ domain_id: id!, vendor }),
+    onMutate: (vendor) => { if (vendor) markPending(vendor) },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['jobs'] })
       refetchResults()
@@ -46,6 +58,7 @@ export default function DomainDetailPage() {
 
   const reputationMutation = useMutation({
     mutationFn: (vendor?: string) => jobsApi.reputation({ domain_id: id!, vendor }),
+    onMutate: (vendor) => { if (vendor) markPending(vendor) },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['jobs'] })
       refetchResults()
@@ -55,6 +68,7 @@ export default function DomainDetailPage() {
 
   const submitMutation = useMutation({
     mutationFn: (vendor?: string) => jobsApi.submit({ domain_id: id!, vendor }),
+    onMutate: (vendor) => { if (vendor) markPending(vendor) },
     onSuccess: () => refetchResults(),
   })
 
@@ -177,7 +191,7 @@ export default function DomainDetailPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {categoryVendors.map((vendor: any) => {
             const r = resultMap[vendor.name]
-            const busy = r?.status === 'running' || r?.status === 'pending'
+            const busy = r?.status === 'running' || r?.status === 'pending' || pendingVendors.has(vendor.name)
             // For category vendors, only show a status badge for non-success states
             // (running, failed, cancelled, etc.). A successful check is conveyed by
             // the CategoryBadge below — an extra "Success" / "Clean" badge here would
@@ -235,14 +249,24 @@ export default function DomainDetailPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
           {reputationVendors.map((vendor: any) => {
             const r = resultMap[vendor.name]
-            const busy = r?.status === 'running' || r?.status === 'pending'
+            const busy = r?.status === 'running' || r?.status === 'pending' || pendingVendors.has(vendor.name)
+            // Reputation aggregates may live in `reputation` (new bridge) or `category` (old rows)
+            const repString: string = r?.reputation || r?.category || ''
+            const repLower = repString.toLowerCase()
+            let badgeStatus: string | undefined = r?.status
+            if (r?.status === 'success') {
+              if (repLower.startsWith('malicious')) badgeStatus = 'malicious'
+              else if (repLower.startsWith('suspicious')) badgeStatus = 'suspicious'
+              else if (repLower.startsWith('error')) badgeStatus = 'error'
+              else badgeStatus = 'clean'
+            }
             return (
               <div key={vendor.id} className="rounded-lg border border-border bg-card p-4">
                 <div className="flex items-center justify-between mb-2">
                   <h4 className="font-medium text-sm">{vendor.display_name}</h4>
-                  <StatusBadge status={r?.status === 'success' ? 'clean' : r?.status} loading={busy} />
+                  <StatusBadge status={busy ? undefined : badgeStatus} loading={busy} />
                 </div>
-                {r?.reputation && <p className="text-xs text-muted-foreground">{r.reputation}</p>}
+                {repString && <p className="text-xs text-muted-foreground">{repString}</p>}
                 {r?.completed_at && !busy && (
                   <p className="text-[10px] text-muted-foreground/60 mt-1">
                     Last check: {new Date(r.completed_at).toLocaleString()}

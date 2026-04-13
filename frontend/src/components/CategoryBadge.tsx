@@ -16,7 +16,13 @@ export default function CategoryBadge({ category, desired }: { category?: string
   const isMatch = desired && lower.includes(desired.toLowerCase())
 
   let color = 'bg-secondary/80 text-secondary-foreground'
-  if (lower.includes('uncategorized') || lower.includes('not found') || lower.includes('newly observed')) {
+  // Risk / warning keywords FIRST — a "Suspicious" result must not fall
+  // through to a generic grey pill because it happens to contain "business".
+  if (lower.includes('malicious') || lower.includes('phishing') || lower.includes('malware') || lower.includes('spam') || lower.includes('fraud') || lower.includes('scam')) {
+    color = 'bg-red-500/20 text-red-400 border border-red-500/30'
+  } else if (lower.includes('suspicious') || lower.includes('high risk') || lower.includes('medium risk')) {
+    color = 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+  } else if (lower.includes('uncategorized') || lower.includes('not found') || lower.includes('newly observed') || lower.includes('newly registered') || lower.includes('not rated')) {
     color = 'bg-orange-500/20 text-orange-400'
   } else if (lower.includes('business') || lower.includes('economy')) {
     color = 'bg-blue-500/15 text-blue-400'
@@ -30,8 +36,6 @@ export default function CategoryBadge({ category, desired }: { category?: string
     color = 'bg-amber-500/15 text-amber-400'
   } else if (lower.includes('technology') || lower.includes('internet') || lower.includes('computer')) {
     color = 'bg-cyan-500/15 text-cyan-400'
-  } else if (lower.includes('malicious') || lower.includes('phishing') || lower.includes('spam')) {
-    color = 'bg-red-500/20 text-red-400'
   }
 
   return (

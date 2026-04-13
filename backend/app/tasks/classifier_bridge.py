@@ -109,10 +109,13 @@ def run_vendor_operation(
     result = {"vendor": vendor_name, "domain": domain, "action": action}
 
     if vendor_name in API_VENDORS:
-        # API-based vendors: no browser needed, single-arg check(domain)
+        # API-based reputation vendors (virustotal, abuseipdb, abusech, googlesafebrowsing).
+        # Each returns a fully-formed aggregate string like "Clean (0/94 harmless)" or
+        # "Malicious (3/94 flagged)". We store the full string as the reputation detail
+        # and classify the first token into a canonical reputation label — NO log scraping
+        # (the old heuristic mis-classified every abuseipdb row because the word "abuse"
+        # appears in its own banner).
         import io, logging
-
-        # Capture log output to extract results
         log_capture = io.StringIO()
         handler = logging.StreamHandler(log_capture)
         handler.setLevel(logging.DEBUG)
@@ -124,25 +127,27 @@ def run_vendor_operation(
         except TypeError:
             check_result = None
 
-        # Extract info from captured logs
         log_output = log_capture.getvalue()
         if hasattr(vendor, 'logger') and hasattr(vendor.logger, 'logger'):
             vendor.logger.logger.removeHandler(handler)
 
-        # Parse log output for results
         result["raw_log"] = log_output
-        if "clean" in log_output.lower() or "no threats" in log_output.lower() or "no abuse" in log_output.lower():
-            result["reputation"] = "clean"
-        elif "flagged" in log_output.lower() or "malicious" in log_output.lower():
-            result["reputation"] = "flagged"
-        elif "abuse" in log_output.lower():
-            result["reputation"] = "suspicious"
 
-        # Try to extract category from return value
-        if isinstance(check_result, str):
-            result["category"] = check_result
+        aggregate: Optional[str] = None
+        if isinstance(check_result, str) and check_result:
+            aggregate = check_result
         elif isinstance(check_result, tuple) and len(check_result) > 0:
-            result["category"] = str(check_result[0])
+            aggregate = str(check_result[0])
+
+        if aggregate:
+            # Reputation vendors populate the `reputation` column; `category` stays empty
+            # because a reputation vendor has no content category.
+            result["reputation"] = aggregate
+            first = aggregate.split()[0].lower().rstrip("(:,")
+            if first.startswith("error"):
+                result["status"] = "failed"
+                result["error"] = aggregate
+                return result
 
         result["status"] = "completed"
         return result

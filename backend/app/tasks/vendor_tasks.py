@@ -186,16 +186,20 @@ def run_vendor_check(self, job_id: str, domain_id: str, domain_name: str,
         result["logs"] = logs
         result["duration_seconds"] = elapsed
 
+        # Respect the status returned by the bridge — a vendor may return
+        # "failed" when it hit an API key error, a DNS lookup failure, etc.
+        final_status = "failed" if result.get("status") == "failed" else "success"
         save_check_result(
             db, domain_id, vendor_id, action_type,
-            status="success",
+            status=final_status,
             category=result.get("category"),
             reputation=result.get("reputation"),
+            error_message=result.get("error"),
             raw_response=result,
         )
-        update_job_progress(db, job_id, vendor_name, "success")
-        publish_update(job_id, vendor_name, "success", category=result.get("category"))
-        return {"vendor": vendor_name, "status": "success", "duration": elapsed}
+        update_job_progress(db, job_id, vendor_name, final_status)
+        publish_update(job_id, vendor_name, final_status, category=result.get("category"), error=result.get("error"))
+        return {"vendor": vendor_name, "status": final_status, "duration": elapsed}
 
     except Exception as e:
         elapsed = round(_time.time() - start_time, 1)
