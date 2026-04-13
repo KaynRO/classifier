@@ -16,8 +16,11 @@ class AbuseCH:
             self.logger.info(f" Targeting urlhaus ".center(60, "="))
 
             if not self.api_key:
-                self.logger.error("[-] No URLhaus API key configured")
-                return "Error (no key)"
+                # URLhaus (abuse.ch) now requires an Auth-Key for all endpoints, including
+                # the host lookup. Without one, the API returns HTTP 401 Unauthorized — so
+                # surface this as a real error rather than a fake "success" row.
+                self.logger.error("[-] No URLhaus Auth-Key configured (URLHAUS_API_KEY). Get one at auth.abuse.ch.")
+                raise RuntimeError("URLhaus requires an Auth-Key — set URLHAUS_API_KEY in .env")
 
             clean_host = domain.replace("https://", "").replace("http://", "").strip("/")
 
@@ -26,7 +29,7 @@ class AbuseCH:
 
             if response_data.get("query_status") == "no_results":
                 self.logger.success("[+] No results found — host is clean")
-                return "Clean (0 URLs, not listed)"
+                return "Clean"
 
             if response_data.get("query_status") != "ok":
                 self.logger.error(f"[-] Query failed: {response_data.get('query_status')}")
@@ -52,16 +55,16 @@ class AbuseCH:
             else:
                 self.logger.success("[+] No malicious URLs reported")
 
+            # Clean results get no parenthetical (keeps the Safety row quiet).
+            # Bad results surface the specific counts so the user can see severity at a glance.
             if urls or listed_count:
                 parts = []
                 if urls:
-                    parts.append(f"{len(urls)} URLs")
-                if blacklist_total:
+                    parts.append(f"{len(urls)} URLs reported")
+                if listed_count:
                     parts.append(f"{listed_count}/{blacklist_total} blacklists")
                 return "Malicious (" + ", ".join(parts) + ")"
-            if blacklist_total:
-                return f"Clean (0/{blacklist_total} blacklists)"
-            return "Clean (not listed)"
+            return "Clean"
 
         except requests.exceptions.RequestException as e:
             self.logger.error(f"[-] RequestException: {e}")

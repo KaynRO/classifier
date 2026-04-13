@@ -9,23 +9,31 @@ import { CATEGORIES, HIDDEN_VENDORS, getManualUrl } from '@/lib/constants'
 import { ExternalLink } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
-// Pull the parenthetical detail out of a reputation category string like
+// Reputation vendors write their aggregate into `reputation`; historically
+// some rows wrote into `category`. Read either one.
+function reputationString(r: any): string {
+  return r?.reputation || r?.category || ''
+}
+
+
+// Pull the parenthetical detail out of an aggregate string like
 // "Clean (0/94 harmless)" → "0/94 harmless".
-function extractDetail(category: string): string | null {
-  const m = category.match(/\(([^)]+)\)/)
+function extractDetail(raw: string): string | null {
+  const m = raw.match(/\(([^)]+)\)/)
   return m ? m[1] : null
 }
 
 
-// Map a reputation check_result to the badge we want to render. A successful
-// check whose category starts with "Malicious" or "Suspicious" should NOT
-// render as "Clean" — they need their own styling.
+// Map a reputation check_result to a badge status key. Uses dedicated
+// malicious/suspicious keys so the badge component never confuses a terminal
+// warning state with a running/in-progress state.
 function deriveBadgeStatus(r: any): string | null | undefined {
   if (!r) return undefined
   if (r.status !== 'success') return r.status
-  const cat = (r.category || '').toLowerCase()
-  if (cat.startsWith('malicious')) return 'failed'
-  if (cat.startsWith('suspicious')) return 'pending'
+  const value = reputationString(r).toLowerCase()
+  if (value.startsWith('error')) return 'error'
+  if (value.startsWith('malicious')) return 'malicious'
+  if (value.startsWith('suspicious')) return 'suspicious'
   return 'clean'
 }
 
@@ -142,13 +150,13 @@ export default function DomainsPage() {
           </h3>
         </div>
         <div className="overflow-x-auto">
-          <table className="text-sm" style={{ minWidth: `${220 + 80 + reputationVendors.length * 210}px` }}>
+          <table className="text-sm" style={{ minWidth: `${220 + 80 + reputationVendors.length * 140}px` }}>
             <thead>
               <tr className="border-b border-border text-[11px] uppercase tracking-wider text-muted-foreground">
-                <th className="px-5 py-2.5 text-left font-medium w-[220px]">Domain</th>
-                <th className="px-3 py-2.5 text-center font-medium w-[80px]">Actions</th>
+                <th className="px-5 py-2.5 text-left font-medium w-[220px] sticky left-0 bg-card z-10">Domain</th>
+                <th className="px-3 py-2.5 text-center font-medium w-[80px] sticky left-[220px] bg-card z-10">Actions</th>
                 {reputationVendors.map((v: any) => (
-                  <th key={v.id} className="px-4 py-2.5 text-left font-medium w-[210px] border-l border-border/40">{v.display_name}</th>
+                  <th key={v.id} className="px-2 py-2.5 text-center font-medium w-[140px] border-l border-border/40 whitespace-nowrap">{v.display_name}</th>
                 ))}
               </tr>
             </thead>
@@ -271,23 +279,34 @@ function SafetyRow({ domain, reputationVendors, onDelete }: { domain: any; reput
   const { data: results } = useQuery({
     queryKey: ['domain-results', domain.id],
     queryFn: () => domainsApi.results(domain.id).then(r => r.data),
-    refetchInterval: 4000,
+    refetchInterval: 2000,
   })
 
   // Only use 'reputation' action results for the Safety table
   const resultMap: Record<number, any> = {}
   results?.filter((r: any) => r.action_type === 'reputation').forEach((r: any) => { resultMap[r.vendor_id] = r })
 
+  // Optimistic tracker so the badge flips to Running immediately after click,
+  // even if the next 2s poll hasn't yet picked up the worker's 'running' write.
+  const [pendingVendors, setPendingVendors] = useState<Set<string>>(new Set())
+  const markPending = (vendor: string) => {
+    setPendingVendors(prev => { const n = new Set(prev); n.add(vendor); return n })
+    setTimeout(() => setPendingVendors(prev => { const n = new Set(prev); n.delete(vendor); return n }), 15000)
+  }
+
   const checkMutation = useMutation({
     mutationFn: (vendor: string) => jobsApi.reputation({ domain_id: domain.id, vendor }),
-    onMutate: (vendor) => toast(`Verifying ${vendor}...`, { icon: '🔍' }),
+    onMutate: (vendor) => { markPending(vendor); toast(`Verifying ${vendor}...`, { icon: '🔍' }) },
     onError: (_, vendor) => toast.error(`Verification failed for ${vendor}`),
     onSettled: () => queryClient.invalidateQueries({ queryKey: ['domain-results', domain.id] }),
   })
 
   const verifyAllMutation = useMutation({
     mutationFn: () => jobsApi.reputation({ domain_id: domain.id }),
-    onMutate: () => toast('Verifying all reputation vendors...', { icon: '🔍' }),
+    onMutate: () => {
+      reputationVendors.forEach((v: any) => markPending(v.name))
+      toast('Verifying all reputation vendors...', { icon: '🔍' })
+    },
     onError: () => toast.error('Verify all failed'),
     onSettled: () => queryClient.invalidateQueries({ queryKey: ['domain-results', domain.id] }),
   })
@@ -298,9 +317,15 @@ function SafetyRow({ domain, reputationVendors, onDelete }: { domain: any; reput
     onError: () => toast.error('Cancel failed'),
   })
 
+  // True when any reputation vendor for this domain is in-flight
+  const anyBusy = reputationVendors.some((v: any) => {
+    const r = resultMap[v.id]
+    return r?.status === 'running' || r?.status === 'pending' || pendingVendors.has(v.name)
+  })
+
   return (
     <tr className="border-b border-border hover:bg-[hsl(var(--table-row-hover,var(--accent)))] transition-colors">
-      <td className="px-5 py-3 align-middle">
+      <td className="px-5 py-3 align-middle sticky left-0 bg-card z-10">
         <Link
           to={`/domains/${domain.id}`}
           className="font-medium text-primary/90 dark:text-[hsl(265,50%,72%)] hover:underline"
@@ -308,66 +333,70 @@ function SafetyRow({ domain, reputationVendors, onDelete }: { domain: any; reput
           {domain.domain}
         </Link>
       </td>
-      <td className="px-3 py-3 align-middle">
-        <div className="flex flex-col items-center gap-1">
-          <button
-            onClick={() => verifyAllMutation.mutate()}
-            className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
-            title="Verify all reputation vendors"
-          >
-            <PlayCircle size={15} />
-          </button>
-          <button onClick={onDelete}
-            className="p-1.5 rounded hover:bg-destructive/15 text-muted-foreground/30 hover:text-destructive transition-colors" title="Delete">
-            <Trash2 size={13} />
-          </button>
-        </div>
+      <td className="px-3 py-3 align-middle sticky left-[220px] bg-card z-10">
+        {anyBusy ? (
+          <div className="flex flex-col items-center gap-1">
+            <Loader2 size={16} className="animate-spin text-sky-400" />
+            <span className="text-[9px] text-sky-400 font-medium">Running</span>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center gap-1">
+            <button
+              onClick={() => verifyAllMutation.mutate()}
+              className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+              title="Verify all reputation vendors"
+            >
+              <PlayCircle size={15} />
+            </button>
+            <button onClick={onDelete}
+              className="p-1.5 rounded hover:bg-destructive/15 text-muted-foreground/30 hover:text-destructive transition-colors" title="Delete">
+              <Trash2 size={13} />
+            </button>
+          </div>
+        )}
       </td>
       {reputationVendors.map((v: any) => {
         const r = resultMap[v.id]
-        const busy = r?.status === 'running' || r?.status === 'pending'
+        const busy = r?.status === 'running' || r?.status === 'pending' || pendingVendors.has(v.name)
         const lastFailed = r?.status === 'failed'
         const manualUrl = lastFailed ? getManualUrl(v.name, 'check', domain.domain) : null
-        // Engine returns an aggregate like "Clean (0/94 harmless)" — render the
-        // parenthetical detail beside the Clean/Malicious badge.
-        const detail = !busy && r?.status === 'success' && r?.category ? extractDetail(r.category) : null
+        const hasResult = r?.status && r.status !== 'running' && r.status !== 'pending'
+        // Engine returns an aggregate like "Clean (0/94 harmless)" — the parenthetical is shown
+        // between the status badge and the Re-verify button.
+        const repString = reputationString(r)
+        const detail = !busy && r?.status === 'success' && repString ? extractDetail(repString) : null
         const badgeStatus = deriveBadgeStatus(r)
         return (
-          <td key={v.id} className="px-4 py-3 align-middle border-l border-border/40">
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center gap-1.5 h-[26px]">
-                <StatusBadge
-                  status={badgeStatus}
-                  loading={busy}
-                  onCancel={busy ? () => cancelMutation.mutate(v.name) : undefined}
-                />
+          <td key={v.id} className="px-2 py-3 align-top border-l border-border/40">
+            <div className="flex flex-col items-center gap-1.5">
+              <StatusBadge
+                status={busy ? undefined : badgeStatus}
+                loading={busy}
+                onCancel={busy ? () => cancelMutation.mutate(v.name) : undefined}
+              />
+              {detail && !busy && (
+                <span className="text-[10px] text-muted-foreground/80 font-mono whitespace-nowrap" title={repString}>
+                  {detail}
+                </span>
+              )}
+              {!busy && (
                 <button
                   onClick={() => checkMutation.mutate(v.name)}
-                  disabled={busy}
-                  className={`px-2.5 h-[26px] rounded-md text-[11px] font-medium transition-all duration-200 ${
-                    busy
-                      ? 'bg-muted/40 text-muted-foreground/30 cursor-not-allowed'
-                      : 'bg-secondary hover:bg-accent text-secondary-foreground hover:text-accent-foreground'
-                  }`}
+                  className="px-2.5 h-[24px] rounded-md text-[11px] font-medium transition-all duration-200 bg-secondary hover:bg-accent text-secondary-foreground hover:text-accent-foreground whitespace-nowrap"
                 >
-                  {busy ? <Loader2 size={10} className="animate-spin" /> : 'Verify'}
+                  {hasResult ? 'Re-verify' : 'Verify'}
                 </button>
-                {detail && (
-                  <span className="text-[10px] text-muted-foreground/80 font-mono truncate" title={r.category}>
-                    {detail}
-                  </span>
-                )}
-              </div>
+              )}
               {manualUrl && (
                 <a
                   href={manualUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   title="Automated check failed — open vendor page to verify manually"
-                  className="inline-flex items-center gap-1 px-2 h-[22px] rounded-md text-[10px] font-medium bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border border-amber-500/30 transition-colors w-fit"
+                  className="inline-flex items-center gap-1 px-2 h-[20px] rounded-md text-[9px] font-medium bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border border-amber-500/30 transition-colors"
                 >
                   <ExternalLink size={9} />
-                  Manual Check
+                  Manual
                 </a>
               )}
             </div>
@@ -384,16 +413,38 @@ function CategorizationRow({ domain, categoryVendors, onDelete }: {
   domain: any; categoryVendors: any[]; onDelete: () => void
 }) {
   const queryClient = useQueryClient()
-  const [busyVendors, setBusyVendors] = useState<Set<string>>(new Set())
 
   const { data: results } = useQuery({
     queryKey: ['domain-results', domain.id],
     queryFn: () => domainsApi.results(domain.id).then(r => r.data),
-    refetchInterval: 4000,
+    refetchInterval: 2000,
   })
 
-  // Busy state is now driven entirely by DB status (persists across refresh/navigation)
-  // The backend sets check_result.status='running' when a task starts
+  // Optimistic per-vendor running flag — flips on immediately when a button
+  // is clicked, clears after 2.5s (by which time the refetch will have picked
+  // up the actual 'running' row from the worker).
+  // Optimistic running flags — keep them alive for 15s (well past the time the
+  // worker writes the 'running' row to DB, which the 2s poll will then pick up
+  // and sustain). If the DB row arrives sooner, both isCheckBusy sources agree
+  // and the spinner stays continuous — no flicker gap.
+  const [pendingCheck, setPendingCheck] = useState<Set<string>>(new Set())
+  const [pendingSubmit, setPendingSubmit] = useState<Set<string>>(new Set())
+  const markCheckPending = (vendor: string) => {
+    if (vendor === '__all__') {
+      categoryVendors.forEach((v: any) => markCheckPending(v.name))
+      return
+    }
+    setPendingCheck(prev => { const n = new Set(prev); n.add(vendor); return n })
+    setTimeout(() => setPendingCheck(prev => { const n = new Set(prev); n.delete(vendor); return n }), 15000)
+  }
+  const markSubmitPending = (vendor: string) => {
+    if (vendor === '__all__') {
+      categoryVendors.forEach((v: any) => markSubmitPending(v.name))
+      return
+    }
+    setPendingSubmit(prev => { const n = new Set(prev); n.add(vendor); return n })
+    setTimeout(() => setPendingSubmit(prev => { const n = new Set(prev); n.delete(vendor); return n }), 15000)
+  }
 
   const checkVendorMutation = useMutation({
     mutationFn: (vendor: string) => jobsApi.check({
@@ -401,6 +452,7 @@ function CategorizationRow({ domain, categoryVendors, onDelete }: {
       vendor: vendor === '__all__' ? undefined : vendor,
     }),
     onMutate: (vendor) => {
+      markCheckPending(vendor)
       if (vendor === '__all__') toast('Checking all vendors...', { icon: '🔄' })
       else toast(`Checking ${vendor}...`, { icon: '🔄' })
     },
@@ -414,6 +466,7 @@ function CategorizationRow({ domain, categoryVendors, onDelete }: {
       vendor: vendor === '__all__' ? undefined : vendor,
     }),
     onMutate: (vendor) => {
+      markSubmitPending(vendor)
       if (vendor === '__all__') toast('Submitting to all vendors...', { icon: '📤' })
       else toast(`Submitting to ${vendor}...`, { icon: '📤' })
     },
@@ -434,6 +487,15 @@ function CategorizationRow({ domain, categoryVendors, onDelete }: {
   const submitResultMap: Record<number, any> = {}
   results?.filter((r: any) => r.action_type === 'submit').forEach((r: any) => { submitResultMap[r.vendor_id] = r })
 
+  // True when ANY vendor cell for this domain is in-flight (DB or optimistic).
+  // Used to replace the Check All / Submit All buttons with a spinner.
+  const anyBusy = categoryVendors.some((v: any) => {
+    const r = resultMap[v.id]
+    const sr = submitResultMap[v.id]
+    return r?.status === 'running' || r?.status === 'pending' || pendingCheck.has(v.name)
+      || sr?.status === 'running' || sr?.status === 'pending' || pendingSubmit.has(v.name)
+  })
+
   return (
     <>
       <tr className="border-b border-border hover:bg-[hsl(var(--table-row-hover,var(--accent)))] transition-colors">
@@ -452,30 +514,37 @@ function CategorizationRow({ domain, categoryVendors, onDelete }: {
           </div>
         </td>
         <td className="px-3 py-2 text-center sticky left-[240px] bg-card z-10">
-          <div className="flex flex-col items-center gap-1">
-            <button
-              onClick={() => checkVendorMutation.mutate('__all__')}
-              className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors" title="Check All Vendors">
-              <PlayCircle size={15} />
-            </button>
-            {domain.desired_category && (
+          {anyBusy ? (
+            <div className="flex flex-col items-center gap-1">
+              <Loader2 size={16} className="animate-spin text-sky-400" />
+              <span className="text-[9px] text-sky-400 font-medium">Running</span>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center gap-1">
               <button
-                onClick={() => submitVendorMutation.mutate('__all__')}
-                className="p-1.5 rounded hover:bg-primary/10 text-primary/60 hover:text-primary transition-colors" title="Submit All Vendors">
-                <SendHorizonal size={15} />
+                onClick={() => checkVendorMutation.mutate('__all__')}
+                className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors" title="Check All Vendors">
+                <PlayCircle size={15} />
               </button>
-            )}
-            <button onClick={onDelete}
-              className="p-1.5 rounded hover:bg-destructive/15 text-muted-foreground/30 hover:text-destructive transition-colors" title="Delete">
-              <Trash2 size={13} />
-            </button>
-          </div>
+              {domain.desired_category && (
+                <button
+                  onClick={() => submitVendorMutation.mutate('__all__')}
+                  className="p-1.5 rounded hover:bg-primary/10 text-primary/60 hover:text-primary transition-colors" title="Submit All Vendors">
+                  <SendHorizonal size={15} />
+                </button>
+              )}
+              <button onClick={onDelete}
+                className="p-1.5 rounded hover:bg-destructive/15 text-muted-foreground/30 hover:text-destructive transition-colors" title="Delete">
+                <Trash2 size={13} />
+              </button>
+            </div>
+          )}
         </td>
         {categoryVendors.map((v: any) => {
           const r = resultMap[v.id]
           const sr = submitResultMap[v.id]
-          const isCheckBusy = r?.status === 'running' || r?.status === 'pending'
-          const isSubmitBusy = sr?.status === 'running' || sr?.status === 'pending'
+          const isCheckBusy = r?.status === 'running' || r?.status === 'pending' || pendingCheck.has(v.name)
+          const isSubmitBusy = sr?.status === 'running' || sr?.status === 'pending' || pendingSubmit.has(v.name)
           const checkFailed = r?.status === 'failed'
           const submitFailed = sr?.status === 'failed'
           const manualCheckUrl = checkFailed ? getManualUrl(v.name, 'check', domain.domain) : null

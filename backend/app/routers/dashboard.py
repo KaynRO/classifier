@@ -108,6 +108,7 @@ async def get_matrix(
             cells.append(MatrixCell(
                 vendor_name=vendor.name,
                 vendor_display_name=vendor.display_name,
+                vendor_type=vendor.vendor_type,
                 status=r.status if r else None,
                 category=r.category if r else None,
                 reputation=r.reputation if r else None,

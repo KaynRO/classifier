@@ -182,6 +182,7 @@ class DashboardSummary(BaseModel):
 class MatrixCell(BaseModel):
     vendor_name: str
     vendor_display_name: str
+    vendor_type: str
     status: Optional[str]
     category: Optional[str]
     reputation: Optional[str]

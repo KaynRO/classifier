@@ -49,22 +49,26 @@ class GoogleSafeBrowsing:
                 self.logger.error(f"[-] Error decoding JSON response: {e}")
                 return "Error"
 
+            # Google Safe Browsing's threatMatches:find is a binary lookup — the URL is either
+            # present in one or more threat lists (malware / social-engineering / unwanted-software /
+            # PHA) or absent. Clean → no parenthetical. Flagged → surface the specific threat types.
             matches = data.get("matches", [])
-            # Google Safe Browsing checks against 4 threat categories per URL (2 URLs = 8 checks)
-            total_checks = 8
 
             if not matches:
-                self.logger.success("[+] Clean — no threats detected")
-                return f"Clean (0/{total_checks} threats)"
+                self.logger.success("[+] Not listed in any Google threat list")
+                return "Clean"
 
             self.logger.warning(f"[!] Flagged with {len(matches)} threat(s):")
+            threat_types = []
             for match in matches:
                 threat_type = match.get("threatType", "UNKNOWN")
                 platform = match.get("platformType", "UNKNOWN")
                 threat_url = match.get("threat", {}).get("url", "N/A")
                 self.logger.warning(f"    Threat: {threat_type}  Platform: {platform}  URL: {threat_url}")
+                if threat_type not in threat_types:
+                    threat_types.append(threat_type)
 
-            return f"Malicious ({len(matches)}/{total_checks} threats)"
+            return f"Malicious ({', '.join(threat_types)})"
 
         except requests.exceptions.RequestException as e:
             self.logger.error(f"[-] RequestException: {e}")

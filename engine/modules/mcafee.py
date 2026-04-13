@@ -1,5 +1,5 @@
 import traceback, re, time
-from typing import Optional
+from typing import Optional, Tuple
 from helpers.constants import *
 from helpers.utils import *
 from helpers.logger import *
@@ -30,7 +30,7 @@ class McAfee:
         self.submit_review_btn = "input[value='Submit URL for Review']"
 
 
-    def check(self, driver, target_url: str, return_reputation_only: bool = False) -> Optional[str]:
+    def check(self, driver, target_url: str, return_reputation_only: bool = False) -> Tuple[Optional[str], Optional[str]]:
         self.logger.info(f" Targeting mcafee ".center(60, "="))
         self.logger.info(f"[*] Using vendor endpoint at: {self.url}")
 
@@ -78,7 +78,9 @@ class McAfee:
             reputation = self.extract_reputation(body_text)
             self.logger.success(f"[+] Reputation: {reputation.upper()}")
 
-            return category
+            # Return (reputation, category) tuple so the bridge can populate both DB
+            # columns. The old single-value return discarded the reputation silently.
+            return reputation, category
 
         except Exception as e:
             self.logger.error(f"[-] McAfee check failed: {str(e)}")
