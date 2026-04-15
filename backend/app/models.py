@@ -109,6 +109,15 @@ class CheckHistory(Base):
     vendor = relationship("Vendor")
 
 
+class AppConfig(Base):
+    """Key-value store for runtime configuration (API keys, credentials)."""
+    __tablename__ = "app_config"
+
+    key = Column(String(100), primary_key=True)
+    value = Column(Text, nullable=True)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
 class Job(Base):
     __tablename__ = "jobs"
     __table_args__ = (

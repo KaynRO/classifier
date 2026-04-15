@@ -1,22 +1,20 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { useTheme } from '@/context/ThemeContext'
-import { useWebSocket } from '@/context/WebSocketContext'
 import {
-  LayoutDashboard, Globe, BriefcaseBusiness, Settings, LogOut, Sun, Moon, Wifi, WifiOff, Shield
+  LayoutDashboard, Globe, Activity, Settings, LogOut, Sun, Moon, Shield
 } from 'lucide-react'
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/domains', icon: Globe, label: 'Domains' },
-  { to: '/jobs', icon: BriefcaseBusiness, label: 'Jobs' },
+  { to: '/jobs', icon: Activity, label: 'Jobs' },
   { to: '/settings', icon: Settings, label: 'Settings' },
 ]
 
 export default function Layout() {
   const { user, logout } = useAuth()
   const { theme, toggleTheme } = useTheme()
-  const { isConnected } = useWebSocket()
   const navigate = useNavigate()
 
   const handleLogout = () => { logout(); navigate('/login') }
@@ -50,7 +48,7 @@ export default function Layout() {
                 }`
               }
             >
-              <Icon size={16} strokeWidth={isConnected ? 1.5 : 1.5} />
+              <Icon size={16} strokeWidth={1.5} />
               {label}
             </NavLink>
           ))}
@@ -58,13 +56,7 @@ export default function Layout() {
 
         {/* Footer */}
         <div className="px-3 py-3 border-t border-[hsl(var(--sidebar-border,var(--border)))]">
-          <div className="flex items-center justify-between mb-2 px-2">
-            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-              {isConnected
-                ? <><Wifi size={12} className="text-emerald-500" /> <span className="text-emerald-500">Live</span></>
-                : <><WifiOff size={12} className="text-red-400" /> <span className="text-red-400">Offline</span></>
-              }
-            </div>
+          <div className="flex items-center justify-end mb-2 px-2">
             <button onClick={toggleTheme} className="p-1 rounded hover:bg-accent/50 text-muted-foreground hover:text-foreground transition-colors">
               {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
             </button>

@@ -1,8 +1,4 @@
-import sys
-import os
-import time
-import traceback
-import io
+import sys, os, time, traceback, io
 from typing import Optional
 
 # Add classifier root to path so we can import modules
@@ -11,10 +7,29 @@ if CLASSIFIER_ROOT not in sys.path:
     sys.path.insert(0, CLASSIFIER_ROOT)
 
 
-def _setup_credentials():
-    """Override credential module values from environment variables."""
+def load_db_config() -> dict:
+    try:
+        import psycopg2
+        db_url = os.environ.get("DATABASE_URL_SYNC", "")
+        if not db_url:
+            return {}
+        conn = psycopg2.connect(db_url)
+        cur = conn.cursor()
+        cur.execute("SELECT key, value FROM app_config WHERE value IS NOT NULL AND value != ''")
+        result = {row[0]: row[1] for row in cur.fetchall()}
+        cur.close()
+        conn.close()
+        return result
+    except Exception:
+        return {}
+
+
+def setup_credentials() -> None:
     try:
         import helpers.credentials as creds
+
+        db_config = load_db_config()
+
         env_map = {
             "TWOCAPTCHA_API_KEY": "twocaptcha_api_key",
             "VIRUSTOTAL_API_KEY": "virustotal_api_key",
@@ -37,10 +52,10 @@ def _setup_credentials():
             "CHECKPOINT_TOTP_SECRET": "checkpoint_totp_secret",
         }
         for env_key, attr_name in env_map.items():
-            val = os.environ.get(env_key)
+            val = db_config.get(attr_name) or os.environ.get(env_key)
             if val:
                 setattr(creds, attr_name, val)
-        # Reset dual solver singleton so it picks up new keys
+        # Reset dual solver singleton so it picks up updated keys
         try:
             import helpers.captcha_dual_solver as ds
             ds._solver_instance = None
@@ -50,8 +65,8 @@ def _setup_credentials():
         pass
 
 
-def _get_vendor_class(vendor_name: str):
-    """Import and return the vendor class by name."""
+def get_vendor_class(vendor_name: str):
+
     vendor_map = {
         "trendmicro": ("modules.trendmicro", "TrendMicro"),
         "mcafee": ("modules.mcafee", "McAfee"),
@@ -94,27 +109,15 @@ def run_vendor_operation(
     email: str = None,
     category: str = None,
 ) -> dict:
-    """
-    Run a vendor check/submit operation.
-    Returns dict with category, reputation, and/or raw data.
-    """
-    _setup_credentials()
-
-    # Ensure logs directory exists (Logger.__init__ calls os.makedirs without exist_ok)
+    setup_credentials()
     os.makedirs("logs", exist_ok=True)
 
-    VendorClass = _get_vendor_class(vendor_name)
+    VendorClass = get_vendor_class(vendor_name)
     vendor = VendorClass()
 
     result = {"vendor": vendor_name, "domain": domain, "action": action}
 
     if vendor_name in API_VENDORS:
-        # API-based reputation vendors (virustotal, abuseipdb, abusech, googlesafebrowsing).
-        # Each returns a fully-formed aggregate string like "Clean (0/94 harmless)" or
-        # "Malicious (3/94 flagged)". We store the full string as the reputation detail
-        # and classify the first token into a canonical reputation label — NO log scraping
-        # (the old heuristic mis-classified every abuseipdb row because the word "abuse"
-        # appears in its own banner).
         import io, logging
         log_capture = io.StringIO()
         handler = logging.StreamHandler(log_capture)

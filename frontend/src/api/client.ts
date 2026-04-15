@@ -68,3 +68,9 @@ export const dashboardApi = {
   summary: () => api.get('/dashboard/summary'),
   matrix: (params?: Record<string, any>) => api.get('/dashboard/matrix', { params }),
 }
+
+// --- Settings ---
+export const settingsApi = {
+  getCredentials: () => api.get('/settings/credentials'),
+  updateCredentials: (data: Record<string, string>) => api.put('/settings/credentials', data),
+}
