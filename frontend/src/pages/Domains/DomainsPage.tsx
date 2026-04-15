@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { domainsApi, jobsApi, vendorsApi } from '@/api/client'
 import StatusBadge from '@/components/StatusBadge'
@@ -52,6 +52,77 @@ function timeAgo(dateStr: string | null | undefined): string {
   return `${days}d ago`
 }
 
+/* ========== COLUMN RESIZE ========== */
+// Default width factories — stable references so the hook's effect doesn't churn
+// Index 0 = domain column, 1..N = vendor columns (no separate actions column)
+const SAFETY_DEFAULT_W = (i: number) => (i === 0 ? 230 : 150)
+const CAT_DEFAULT_W    = (i: number) => (i === 0 ? 250 : 200)
+
+function useResizableColumns(count: number, defaultW: (i: number) => number) {
+  const [widths, setWidths] = useState<number[]>(() =>
+    Array.from({ length: count }, (_, i) => defaultW(i))
+  )
+  const colRefs   = useRef<(HTMLTableColElement | null)[]>([])
+  const liveW     = useRef<number[]>([])
+
+  // Keep live ref in sync with committed state
+  useEffect(() => { liveW.current = [...widths] }, [widths])
+
+  // Extend / shrink when vendor count changes after initial render
+  useEffect(() => {
+    setWidths(prev => {
+      if (prev.length === count) return prev
+      return Array.from({ length: count }, (_, i) => prev[i] ?? defaultW(i))
+    })
+  // defaultW is module-level constant — safe to omit from deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [count])
+
+  const startResize = useCallback((idx: number, e: React.MouseEvent) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startW = liveW.current[idx] ?? defaultW(idx)
+
+    document.body.style.cursor    = 'col-resize'
+    document.body.style.userSelect = 'none'
+
+    const onMove = (ev: MouseEvent) => {
+      const newW = Math.max(80, startW + ev.clientX - startX)
+      liveW.current[idx] = newW
+      // Direct DOM update — zero React overhead during drag
+      const col = colRefs.current[idx]
+      if (col) col.style.width = `${newW}px`
+    }
+
+    const onUp = () => {
+      document.body.style.cursor    = ''
+      document.body.style.userSelect = ''
+      // Commit once on mouseup so sticky left values re-render
+      setWidths([...liveW.current])
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup',   onUp)
+    }
+
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup',   onUp)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  return { widths, colRefs, startResize }
+}
+
+function ResizeHandle({ onMouseDown }: { onMouseDown: (e: React.MouseEvent) => void }) {
+  return (
+    <div
+      onMouseDown={onMouseDown}
+      onClick={e => e.stopPropagation()}
+      className="absolute right-0 top-0 h-full w-[6px] cursor-col-resize z-20 group/rh flex items-center justify-center"
+    >
+      <div className="w-[2px] h-[55%] rounded-full bg-transparent group-hover/rh:bg-border transition-colors duration-150" />
+    </div>
+  )
+}
+
 export default function DomainsPage() {
   const [search, setSearch] = useState('')
   const [showAdd, setShowAdd] = useState(false)
@@ -84,8 +155,13 @@ export default function DomainsPage() {
     onSettled: () => setScanningAll(false),
   })
 
-  const categoryVendors = vendors?.filter((v: any) => v.vendor_type === 'category' && !HIDDEN_VENDORS.has(v.name)) || []
+  const categoryVendors  = vendors?.filter((v: any) => v.vendor_type === 'category'   && !HIDDEN_VENDORS.has(v.name)) || []
   const reputationVendors = vendors?.filter((v: any) => v.vendor_type === 'reputation' && !HIDDEN_VENDORS.has(v.name)) || []
+
+  const { widths: safetyW, colRefs: safetyColRefs, startResize: startSafetyResize } =
+    useResizableColumns(1 + reputationVendors.length, SAFETY_DEFAULT_W)
+  const { widths: catW, colRefs: catColRefs, startResize: startCatResize } =
+    useResizableColumns(1 + categoryVendors.length, CAT_DEFAULT_W)
 
   return (
     <div className="space-y-6">
@@ -150,13 +226,23 @@ export default function DomainsPage() {
           </h3>
         </div>
         <div className="overflow-x-auto">
-          <table className="text-sm" style={{ minWidth: `${220 + 80 + reputationVendors.length * 140}px` }}>
+          <table className="text-sm" style={{ tableLayout: 'fixed', minWidth: `${safetyW.reduce((a, b) => a + b, 0)}px` }}>
+            <colgroup>
+              {safetyW.map((w, i) => (
+                <col key={i} ref={el => { safetyColRefs.current[i] = el }} style={{ width: `${w}px` }} />
+              ))}
+            </colgroup>
             <thead>
-              <tr className="border-b border-border text-[11px] uppercase tracking-wider text-muted-foreground">
-                <th className="px-5 py-2.5 text-left font-medium w-[220px] sticky left-0 bg-card z-10">Domain</th>
-                <th className="px-3 py-2.5 text-center font-medium w-[80px] sticky left-[220px] bg-card z-10">Actions</th>
-                {reputationVendors.map((v: any) => (
-                  <th key={v.id} className="px-2 py-2.5 text-center font-medium w-[140px] border-l border-border/40 whitespace-nowrap">{v.display_name}</th>
+              <tr className="border-b border-border text-[11px] uppercase tracking-wider text-muted-foreground select-none">
+                <th className="relative px-4 py-2.5 text-left font-medium sticky left-0 bg-card z-10 overflow-hidden">
+                  <span className="block truncate">Domain</span>
+                  <ResizeHandle onMouseDown={e => startSafetyResize(0, e)} />
+                </th>
+                {reputationVendors.map((v: any, i: number) => (
+                  <th key={v.id} className="relative px-2 py-2.5 text-center font-medium border-l border-border/40 overflow-hidden">
+                    <span className="block truncate">{v.display_name}</span>
+                    <ResizeHandle onMouseDown={e => startSafetyResize(1 + i, e)} />
+                  </th>
                 ))}
               </tr>
             </thead>
@@ -164,9 +250,9 @@ export default function DomainsPage() {
               {data?.items?.map((domain: any) => (
                 <SafetyRow key={domain.id} domain={domain} reputationVendors={reputationVendors} onDelete={() => setDomainToDelete(domain)} />
               ))}
-              {isLoading && <LoadingRow cols={2 + reputationVendors.length} />}
+              {isLoading && <LoadingRow cols={1 + reputationVendors.length} />}
               {!isLoading && (!data?.items || data.items.length === 0) && (
-                <EmptyRow cols={2 + reputationVendors.length} text="No domains yet" />
+                <EmptyRow cols={1 + reputationVendors.length} text="No domains yet" />
               )}
             </tbody>
           </table>
@@ -181,9 +267,14 @@ export default function DomainsPage() {
           </h3>
         </div>
         <div className="overflow-x-auto">
-          <table className="text-sm" style={{ minWidth: `${240 + categoryVendors.length * 195 + 80}px` }}>
+          <table className="text-sm" style={{ tableLayout: 'fixed', minWidth: `${catW.reduce((a, b) => a + b, 0)}px` }}>
+            <colgroup>
+              {catW.map((w, i) => (
+                <col key={i} ref={el => { catColRefs.current[i] = el }} style={{ width: `${w}px` }} />
+              ))}
+            </colgroup>
             <thead>
-              <VendorHeaders categoryVendors={categoryVendors} domains={data?.items || []} />
+              <VendorHeaders categoryVendors={categoryVendors} domains={data?.items || []} widths={catW} startResize={startCatResize} />
             </thead>
             <tbody>
               {data?.items?.map((domain: any) => (
@@ -194,9 +285,9 @@ export default function DomainsPage() {
                   onDelete={() => setDomainToDelete(domain)}
                 />
               ))}
-              {isLoading && <LoadingRow cols={2 + categoryVendors.length + 1} />}
+              {isLoading && <LoadingRow cols={1 + categoryVendors.length} />}
               {!isLoading && (!data?.items || data.items.length === 0) && (
-                <EmptyRow cols={2 + categoryVendors.length + 1} text="No domains yet. Click &quot;Add Domain&quot; to get started." />
+                <EmptyRow cols={1 + categoryVendors.length} text="No domains yet. Click &quot;Add Domain&quot; to get started." />
               )}
             </tbody>
           </table>
@@ -220,7 +311,12 @@ export default function DomainsPage() {
 }
 
 /* ========== VENDOR COLUMN HEADERS WITH TIMESTAMPS ========== */
-function VendorHeaders({ categoryVendors, domains }: { categoryVendors: any[]; domains: any[] }) {
+function VendorHeaders({ categoryVendors, domains, widths, startResize }: {
+  categoryVendors: any[]
+  domains: any[]
+  widths: number[]
+  startResize: (idx: number, e: React.MouseEvent) => void
+}) {
   // Aggregate latest check time per vendor across all domains
   const allResults = useQuery({
     queryKey: ['all-results-for-headers'],
@@ -244,11 +340,21 @@ function VendorHeaders({ categoryVendors, domains }: { categoryVendors: any[]; d
   })
 
   return (
-    <tr className="border-b border-border text-[11px] uppercase tracking-wider text-muted-foreground">
-      <th className="px-5 py-2.5 text-left font-medium w-[240px] sticky left-0 bg-card z-10">Domain</th>
-      <th className="px-3 py-2.5 text-center font-medium w-[80px] sticky left-[240px] bg-card z-10">Actions</th>
-      {categoryVendors.map((v: any) => (
-        <th key={v.id} className="px-4 py-2.5 text-center font-medium w-[195px]">{v.display_name}</th>
+    <tr className="border-b border-border text-[11px] uppercase tracking-wider text-muted-foreground select-none">
+      <th className="relative px-4 py-2.5 text-left font-medium sticky left-0 bg-card z-10 overflow-hidden">
+        <span className="block truncate">Domain</span>
+        <ResizeHandle onMouseDown={e => startResize(0, e)} />
+      </th>
+      {categoryVendors.map((v: any, i: number) => (
+        <th key={v.id} className="relative px-4 py-2.5 text-center font-medium overflow-hidden">
+          <div className="flex flex-col items-center gap-0.5">
+            <span className="block truncate">{v.display_name}</span>
+            {latestPerVendor[v.id] && (
+              <span className="text-[9px] font-normal normal-case text-muted-foreground/40">{timeAgo(latestPerVendor[v.id])}</span>
+            )}
+          </div>
+          <ResizeHandle onMouseDown={e => startResize(1 + i, e)} />
+        </th>
       ))}
     </tr>
   )
@@ -324,36 +430,36 @@ function SafetyRow({ domain, reputationVendors, onDelete }: { domain: any; reput
   })
 
   return (
-    <tr className="border-b border-border hover:bg-[hsl(var(--table-row-hover,var(--accent)))] transition-colors">
-      <td className="px-5 py-3 align-middle sticky left-0 bg-card z-10">
-        <Link
-          to={`/domains/${domain.id}`}
-          className="font-medium text-primary/90 dark:text-[hsl(265,50%,72%)] hover:underline"
-        >
-          {domain.domain}
-        </Link>
-      </td>
-      <td className="px-3 py-3 align-middle sticky left-[220px] bg-card z-10">
-        {anyBusy ? (
-          <div className="flex flex-col items-center gap-1">
-            <Loader2 size={16} className="animate-spin text-sky-400" />
-            <span className="text-[9px] text-sky-400 font-medium">Running</span>
-          </div>
-        ) : (
-          <div className="flex flex-col items-center gap-1">
-            <button
-              onClick={() => verifyAllMutation.mutate()}
-              className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
-              title="Verify all reputation vendors"
-            >
-              <PlayCircle size={15} />
-            </button>
-            <button onClick={onDelete}
-              className="p-1.5 rounded hover:bg-destructive/15 text-muted-foreground/30 hover:text-destructive transition-colors" title="Delete">
-              <Trash2 size={13} />
-            </button>
-          </div>
-        )}
+    <tr className="group/row border-b border-border hover:bg-[hsl(var(--table-row-hover,var(--accent)))] transition-colors">
+      <td className="px-4 py-3 align-middle sticky left-0 bg-card z-10">
+        <div className="flex items-center justify-between gap-1.5">
+          <Link
+            to={`/domains/${domain.id}`}
+            className="font-medium text-primary/90 dark:text-[hsl(265,50%,72%)] hover:underline truncate"
+          >
+            {domain.domain}
+          </Link>
+          {anyBusy ? (
+            <Loader2 size={13} className="animate-spin text-sky-400 flex-shrink-0" />
+          ) : (
+            <div className="flex items-center gap-0.5 opacity-0 group-hover/row:opacity-100 transition-opacity flex-shrink-0">
+              <button
+                onClick={() => verifyAllMutation.mutate()}
+                className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                title="Verify all"
+              >
+                <PlayCircle size={13} />
+              </button>
+              <button
+                onClick={onDelete}
+                className="p-1 rounded hover:bg-destructive/15 text-muted-foreground/30 hover:text-destructive transition-colors"
+                title="Delete"
+              >
+                <Trash2 size={12} />
+              </button>
+            </div>
+          )}
+        </div>
       </td>
       {reputationVendors.map((v: any) => {
         const r = resultMap[v.id]
@@ -375,9 +481,12 @@ function SafetyRow({ domain, reputationVendors, onDelete }: { domain: any; reput
                 onCancel={busy ? () => cancelMutation.mutate(v.name) : undefined}
               />
               {detail && !busy && (
-                <span className="text-[10px] text-muted-foreground/80 font-mono whitespace-nowrap" title={repString}>
+                <span className="text-[10px] text-muted-foreground/80 font-mono break-all text-center" title={repString}>
                   {detail}
                 </span>
+              )}
+              {r?.completed_at && !busy && (
+                <span className="text-[9px] text-muted-foreground/50">{timeAgo(r.completed_at)}</span>
               )}
               {!busy && (
                 <button
@@ -498,47 +607,53 @@ function CategorizationRow({ domain, categoryVendors, onDelete }: {
 
   return (
     <>
-      <tr className="border-b border-border hover:bg-[hsl(var(--table-row-hover,var(--accent)))] transition-colors">
-        <td className="px-5 py-2.5 sticky left-0 bg-card z-10">
-          <Link
-            to={`/domains/${domain.id}`}
-            className="font-medium text-primary/90 dark:text-[hsl(265,50%,72%)] hover:underline"
-          >
-            {domain.domain}
-          </Link>
-          <div className="mt-0.5">
-            {domain.desired_category
-              ? <span className="px-1.5 py-px rounded text-[10px] font-medium bg-primary/10 text-primary/70 dark:text-[hsl(265,40%,65%)]">{domain.desired_category}</span>
-              : <span className="text-[10px] text-muted-foreground/40 italic">No category set</span>
-            }
-          </div>
-        </td>
-        <td className="px-3 py-2 text-center sticky left-[240px] bg-card z-10">
-          {anyBusy ? (
-            <div className="flex flex-col items-center gap-1">
-              <Loader2 size={16} className="animate-spin text-sky-400" />
-              <span className="text-[9px] text-sky-400 font-medium">Running</span>
+      <tr className="group/row border-b border-border hover:bg-[hsl(var(--table-row-hover,var(--accent)))] transition-colors">
+        <td className="px-4 py-2.5 sticky left-0 bg-card z-10">
+          <div className="flex items-start justify-between gap-1.5">
+            <div className="min-w-0">
+              <Link
+                to={`/domains/${domain.id}`}
+                className="font-medium text-primary/90 dark:text-[hsl(265,50%,72%)] hover:underline block truncate"
+              >
+                {domain.domain}
+              </Link>
+              <div className="mt-0.5">
+                {domain.desired_category
+                  ? <span className="px-1.5 py-px rounded text-[10px] font-medium bg-primary/10 text-primary/70 dark:text-[hsl(265,40%,65%)]">{domain.desired_category}</span>
+                  : <span className="text-[10px] text-muted-foreground/40 italic">No category set</span>
+                }
+              </div>
             </div>
-          ) : (
-            <div className="flex flex-col items-center gap-1">
-              <button
-                onClick={() => checkVendorMutation.mutate('__all__')}
-                className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors" title="Check All Vendors">
-                <PlayCircle size={15} />
-              </button>
-              {domain.desired_category && (
+            {anyBusy ? (
+              <Loader2 size={13} className="animate-spin text-sky-400 flex-shrink-0 mt-0.5" />
+            ) : (
+              <div className="flex items-center gap-0.5 opacity-0 group-hover/row:opacity-100 transition-opacity flex-shrink-0 mt-0.5">
                 <button
-                  onClick={() => submitVendorMutation.mutate('__all__')}
-                  className="p-1.5 rounded hover:bg-primary/10 text-primary/60 hover:text-primary transition-colors" title="Submit All Vendors">
-                  <SendHorizonal size={15} />
+                  onClick={() => checkVendorMutation.mutate('__all__')}
+                  className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                  title="Check all vendors"
+                >
+                  <PlayCircle size={13} />
                 </button>
-              )}
-              <button onClick={onDelete}
-                className="p-1.5 rounded hover:bg-destructive/15 text-muted-foreground/30 hover:text-destructive transition-colors" title="Delete">
-                <Trash2 size={13} />
-              </button>
-            </div>
-          )}
+                {domain.desired_category && (
+                  <button
+                    onClick={() => submitVendorMutation.mutate('__all__')}
+                    className="p-1 rounded hover:bg-primary/10 text-primary/60 hover:text-primary transition-colors"
+                    title="Submit all vendors"
+                  >
+                    <SendHorizonal size={13} />
+                  </button>
+                )}
+                <button
+                  onClick={onDelete}
+                  className="p-1 rounded hover:bg-destructive/15 text-muted-foreground/30 hover:text-destructive transition-colors"
+                  title="Delete"
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            )}
+          </div>
         </td>
         {categoryVendors.map((v: any) => {
           const r = resultMap[v.id]
@@ -565,7 +680,7 @@ function CategorizationRow({ domain, categoryVendors, onDelete }: {
                   <span className="text-[9px] text-muted-foreground/50">{timeAgo(r.completed_at)}</span>
                 )}
                 {/* Buttons */}
-                <div className="flex items-center gap-1 mt-0.5">
+                <div className="flex flex-wrap justify-center items-center gap-1 mt-0.5">
                   <button
                     onClick={() => checkVendorMutation.mutate(v.name)}
                     disabled={isCheckBusy}
