@@ -2,6 +2,7 @@ from uuid import UUID
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models import Job, Domain, Vendor, User, CheckResult, CheckHistory
@@ -261,12 +262,18 @@ async def list_jobs(
     count_q = select(func.count()).select_from(query.subquery())
     total = (await db.execute(count_q)).scalar() or 0
 
-    query = query.order_by(Job.requested_at.desc()).offset((page - 1) * per_page).limit(per_page)
+    query = query.options(selectinload(Job.domain)).order_by(Job.requested_at.desc()).offset((page - 1) * per_page).limit(per_page)
     result = await db.execute(query)
     jobs = result.scalars().all()
 
+    items = []
+    for j in jobs:
+        resp = JobResponse.model_validate(j)
+        resp.domain_name = j.domain.domain if j.domain else None
+        items.append(resp)
+
     return PaginatedResponse(
-        items=[JobResponse.model_validate(j) for j in jobs],
+        items=items,
         total=total, page=page, per_page=per_page,
         pages=(total + per_page - 1) // per_page if per_page else 0,
     )
