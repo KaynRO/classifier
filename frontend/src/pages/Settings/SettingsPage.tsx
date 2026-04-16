@@ -100,7 +100,7 @@ function CredentialGroup({
   serverValues: Record<string, string>
   onChange: (key: string, value: string) => void
 }) {
-  const [open, setOpen] = useState(true)
+  const [open, setOpen] = useState(false)
   const configured = group.keys.filter(k => !!serverValues[k.key]).length
 
   return (
