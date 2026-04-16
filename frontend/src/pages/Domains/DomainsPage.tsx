@@ -41,7 +41,7 @@ function timeAgo(dateStr: string | null | undefined): string {
   return `${days}d ago`
 }
 
-const SAFETY_DEFAULT_W = (i: number) => (i === 0 ? 230 : 150)
+const SAFETY_DEFAULT_W = (i: number) => (i === 0 ? 230 : 200)
 const CAT_DEFAULT_W    = (i: number) => (i === 0 ? 250 : 200)
 
 function useResizableColumns(count: number, defaultW: (i: number) => number) {
@@ -201,25 +201,34 @@ export default function DomainsPage() {
             Verify All Domains
           </button>
         </div>
-        <div className="overflow-x-auto">
+        <div className="overflow-auto" style={{ maxHeight: '60vh' }}>
           <table className="text-sm" style={{ tableLayout: 'fixed', minWidth: `${safetyW.reduce((a, b) => a + b, 0)}px` }}>
             <colgroup>
               {safetyW.map((w, i) => (
                 <col key={i} ref={el => { safetyColRefs.current[i] = el }} style={{ width: `${w}px` }} />
               ))}
             </colgroup>
-            <thead>
+            <thead className="sticky top-0 z-20 bg-card">
               <tr className="border-b border-border text-[11px] uppercase tracking-wider text-muted-foreground select-none">
-                <th className="relative px-4 py-2.5 text-left font-medium sticky left-0 bg-card z-10 overflow-hidden">
+                <th className="relative px-4 py-2.5 text-left font-medium sticky left-0 bg-card z-30 overflow-hidden">
                   <span className="block truncate">Domain</span>
                   <ResizeHandle onMouseDown={e => startSafetyResize(0, e)} />
                 </th>
-                {reputationVendors.map((v: any, i: number) => (
-                  <th key={v.id} className="relative px-2 py-2.5 text-center font-medium border-l border-border/40 overflow-hidden">
-                    <span className="block truncate">{v.display_name}</span>
-                    <ResizeHandle onMouseDown={e => startSafetyResize(1 + i, e)} />
-                  </th>
-                ))}
+                {reputationVendors.map((v: any, i: number) => {
+                  const vendorUrl = getManualUrl(v.name, 'check', '')?.replace(encodeURIComponent(''), '').replace(/[?&].*$/, '') || null
+                  return (
+                    <th key={v.id} className="relative px-2 py-2.5 text-center font-medium border-l border-border/40 overflow-hidden">
+                      {vendorUrl ? (
+                        <a href={vendorUrl} target="_blank" rel="noopener noreferrer" className="block truncate hover:text-primary transition-colors" title={`Open ${v.display_name}`}>
+                          {v.display_name}
+                        </a>
+                      ) : (
+                        <span className="block truncate">{v.display_name}</span>
+                      )}
+                      <ResizeHandle onMouseDown={e => startSafetyResize(1 + i, e)} />
+                    </th>
+                  )
+                })}
               </tr>
             </thead>
             <tbody>
@@ -259,15 +268,15 @@ export default function DomainsPage() {
             </button>
           </div>
         </div>
-        <div className="overflow-x-auto">
+        <div className="overflow-auto" style={{ maxHeight: '60vh' }}>
           <table className="text-sm" style={{ tableLayout: 'fixed', minWidth: `${catW.reduce((a, b) => a + b, 0)}px` }}>
             <colgroup>
               {catW.map((w, i) => (
                 <col key={i} ref={el => { catColRefs.current[i] = el }} style={{ width: `${w}px` }} />
               ))}
             </colgroup>
-            <thead>
-              <VendorHeaders categoryVendors={categoryVendors} domains={data?.items || []} widths={catW} startResize={startCatResize} />
+            <thead className="sticky top-0 z-20 bg-card">
+              <VendorHeaders categoryVendors={categoryVendors} widths={catW} startResize={startCatResize} />
             </thead>
             <tbody>
               {data?.items?.map((domain: any) => (
@@ -304,50 +313,32 @@ export default function DomainsPage() {
   )
 }
 
-function VendorHeaders({ categoryVendors, domains, widths, startResize }: {
+function VendorHeaders({ categoryVendors, widths, startResize }: {
   categoryVendors: any[]
-  domains: any[]
   widths: number[]
   startResize: (idx: number, e: React.MouseEvent) => void
 }) {
-  const allResults = useQuery({
-    queryKey: ['all-results-for-headers'],
-    queryFn: async () => {
-      if (!domains.length) return []
-      const promises = domains.slice(0, 10).map(d => domainsApi.results(d.id).then(r => r.data))
-      return (await Promise.all(promises)).flat()
-    },
-    enabled: domains.length > 0,
-    staleTime: 10000,
-  })
-
-  const latestPerVendor: Record<number, string | null> = {}
-  allResults.data?.forEach((r: any) => {
-    if (r.completed_at) {
-      const existing = latestPerVendor[r.vendor_id]
-      if (!existing || r.completed_at > existing) {
-        latestPerVendor[r.vendor_id] = r.completed_at
-      }
-    }
-  })
-
   return (
     <tr className="border-b border-border text-[11px] uppercase tracking-wider text-muted-foreground select-none">
-      <th className="relative px-4 py-2.5 text-left font-medium sticky left-0 bg-card z-10 overflow-hidden">
+      <th className="relative px-4 py-2.5 text-left font-medium sticky left-0 bg-card z-30 overflow-hidden">
         <span className="block truncate">Domain</span>
         <ResizeHandle onMouseDown={e => startResize(0, e)} />
       </th>
-      {categoryVendors.map((v: any, i: number) => (
-        <th key={v.id} className="relative px-4 py-2.5 text-center font-medium overflow-hidden">
-          <div className="flex flex-col items-center gap-0.5">
-            <span className="block truncate">{v.display_name}</span>
-            {latestPerVendor[v.id] && (
-              <span className="text-[9px] font-normal normal-case text-muted-foreground/40">{timeAgo(latestPerVendor[v.id])}</span>
+      {categoryVendors.map((v: any, i: number) => {
+        const vendorUrl = getManualUrl(v.name, 'check', '')?.replace(encodeURIComponent(''), '').replace(/[?&].*$/, '') || null
+        return (
+          <th key={v.id} className="relative px-4 py-2.5 text-center font-medium overflow-hidden">
+            {vendorUrl ? (
+              <a href={vendorUrl} target="_blank" rel="noopener noreferrer" className="block truncate hover:text-primary transition-colors" title={`Open ${v.display_name}`}>
+                {v.display_name}
+              </a>
+            ) : (
+              <span className="block truncate">{v.display_name}</span>
             )}
-          </div>
-          <ResizeHandle onMouseDown={e => startResize(1 + i, e)} />
-        </th>
-      ))}
+            <ResizeHandle onMouseDown={e => startResize(1 + i, e)} />
+          </th>
+        )
+      })}
     </tr>
   )
 }
@@ -479,7 +470,7 @@ function SafetyRow({ domain, reputationVendors, bulkPending, onDelete }: { domai
                   {hasResult ? 'Re-verify' : 'Verify'}
                 </button>
               )}
-              {manualUrl && (
+              {manualUrl && !busy && (
                 <a
                   href={manualUrl}
                   target="_blank"
