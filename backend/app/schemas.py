@@ -157,6 +157,7 @@ class JobCreate(BaseModel):
 class JobResponse(BaseModel):
     id: UUID
     domain_id: UUID
+    domain_name: Optional[str] = None
     action_type: str
     vendor_filter: Optional[str]
     status: str

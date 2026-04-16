@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { jobsApi, domainsApi, vendorsApi } from '@/api/client'
+import { jobsApi, vendorsApi, domainsApi } from '@/api/client'
 import { useWebSocket } from '@/context/WebSocketContext'
 import StatusBadge from '@/components/StatusBadge'
 import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react'
@@ -111,15 +111,6 @@ export default function JobsPage() {
     refetchInterval: 5000,
   })
 
-  const { data: domainsData } = useQuery({
-    queryKey: ['domains-lookup'],
-    queryFn: () => domainsApi.list({ per_page: 200, is_active: true }).then(r => r.data),
-    staleTime: 30000,
-  })
-
-  const domainMap: Record<string, string> = {}
-  domainsData?.items?.forEach((d: any) => { domainMap[d.id] = d.domain })
-
   const { messages } = useWebSocket()
 
   return (
@@ -168,7 +159,7 @@ export default function JobsPage() {
                   key={job.id}
                   job={job}
                   displayStatus={displayStatus}
-                  domainName={domainMap[job.domain_id] || job.domain_id.slice(0, 8) + '...'}
+                  domainName={job.domain_name || job.domain_id.slice(0, 8) + '...'}
                   total={total}
                   done={done}
                   allDone={allDone}
