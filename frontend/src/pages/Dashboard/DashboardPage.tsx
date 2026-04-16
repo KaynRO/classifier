@@ -6,9 +6,7 @@ import StatusBadge from '@/components/StatusBadge'
 import CategoryBadge from '@/components/CategoryBadge'
 import { Globe, Shield, AlertTriangle, Clock, RefreshCw, ArrowRight, CheckCircle2, MinusCircle, AlertCircle } from 'lucide-react'
 
-
 type Bucket = 'match' | 'neutral' | 'suspicious' | 'unchecked'
-
 
 const RISK_KEYWORDS = [
   'suspicious', 'phishing', 'malware', 'malicious', 'spam', 'scam', 'fraud',
@@ -16,13 +14,11 @@ const RISK_KEYWORDS = [
   'high risk', 'critical risk',
 ]
 
-
 const NEUTRAL_KEYWORDS = [
   'not found', 'not rated', 'uncategorized', 'newly registered',
   'newly observed', 'no established', 'unknown', 'unrated', 'inactive sites',
   'untested', 'n/a',
 ]
-
 
 function bucketCategoryCell(category: string | null, desired: string | null): Bucket {
   if (!category) return 'unchecked'
@@ -37,16 +33,11 @@ function bucketCategoryCell(category: string | null, desired: string | null): Bu
 
   if (NEUTRAL_KEYWORDS.some(k => lower.includes(k))) return 'neutral'
 
-  // Categorized as something real but not the desired category, and not risky
   return 'neutral'
 }
 
-
 function bucketReputationCell(reputation: string | null, category: string | null): Bucket {
-  // Reputation vendors may store their aggregate in `reputation` (current) or `category` (legacy).
-  // The engine always returns strings whose FIRST TOKEN is the verdict, e.g. "Clean (0/94 harmless)"
-  // or "Malicious (3/94 flagged)". Classify by prefix only, not by scanning the whole string,
-  // to avoid false positives from phrases like "clean" appearing inside a malicious aggregate.
+  // Classify by prefix only to avoid false positives from phrases appearing in aggregate strings
   const value = (reputation || category || '').trim().toLowerCase()
   if (!value) return 'unchecked'
   if (value.startsWith('error')) return 'unchecked'
@@ -56,12 +47,10 @@ function bucketReputationCell(reputation: string | null, category: string | null
   return 'neutral'
 }
 
-
 function DomainStatsCard({ row }: { row: any }) {
   const desired = row.domain.desired_category as string | null
   const cells = row.results || []
 
-  // Categorization: only count category-type vendors (check action)
   const categoryCells = cells.filter((c: any) => c.vendor_type === 'category')
   const reputationCells = cells.filter((c: any) => c.vendor_type === 'reputation')
 
@@ -78,7 +67,6 @@ function DomainStatsCard({ row }: { row: any }) {
   }
   const categoryTotal = categoryCells.length
 
-  // Safety aggregation — distinguish failed (API error, DNS, 401) from pending (not yet checked)
   let safetyClean = 0
   let safetyMalicious = 0
   let safetyNeutral = 0
@@ -113,7 +101,6 @@ function DomainStatsCard({ row }: { row: any }) {
           ) : (
             <div className="mt-1 text-[10px] text-muted-foreground/50 italic">No desired category</div>
           )}
-          {/* Safety aggregation line */}
           {safetyTotal > 0 && (
             <div className="mt-1.5 text-[10px] text-muted-foreground/80 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
               <span className="font-medium text-muted-foreground/60">Safety:</span>
@@ -135,10 +122,8 @@ function DomainStatsCard({ row }: { row: any }) {
         </Link>
       </div>
 
-      {/* Category section label */}
       <div className="text-[10px] font-medium text-muted-foreground/60 mb-1.5">Category:</div>
 
-      {/* Stacked bar — categorization only */}
       {categoryTotal > 0 && (
         <div className="h-1.5 w-full rounded-full overflow-hidden flex bg-muted/30 mb-2">
           {match > 0 && <div className="bg-emerald-500" style={{ width: `${(match / categoryTotal) * 100}%` }} />}
@@ -147,7 +132,6 @@ function DomainStatsCard({ row }: { row: any }) {
         </div>
       )}
 
-      {/* Categorization count badges */}
       <div className="grid grid-cols-3 gap-1.5 text-[10px]">
         <div className="flex items-center gap-1 px-2 py-1 rounded bg-emerald-500/10 border border-emerald-500/20" title="Category vendors reporting the desired/correct category">
           <CheckCircle2 size={11} className="text-emerald-500 shrink-0" />
@@ -174,7 +158,6 @@ function DomainStatsCard({ row }: { row: any }) {
     </div>
   )
 }
-
 
 export default function DashboardPage() {
   const { data: summary } = useQuery({
@@ -216,7 +199,6 @@ export default function DashboardPage() {
         </Link>
       </div>
 
-      {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {stats.map(({ label, value, icon: Icon, color }) => (
           <div key={label} className="rounded-lg border border-border bg-card p-6">
@@ -229,7 +211,6 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      {/* Per-Domain Summary Grid */}
       <div className="rounded-lg border border-border bg-card overflow-hidden">
         <div className="px-5 py-3 border-b border-border bg-[hsl(var(--table-header,var(--secondary)))] flex items-center justify-between">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -253,7 +234,6 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Recent Activity */}
       {messages.length > 0 && (
         <div className="rounded-lg border border-border bg-card">
           <div className="p-4 border-b border-border">

@@ -3,13 +3,7 @@ export type Category = typeof CATEGORIES[number]
 
 export const HIDDEN_VENDORS = new Set(['lightspeedsystems'])
 
-/**
- * Per-vendor manual check/submit URLs. Used when an automated task has
- * failed and the user wants to open the vendor's site and do it by hand.
- * Supports `{domain}` placeholder.
- */
 export const VENDOR_MANUAL_URLS: Record<string, { check?: string; submit?: string }> = {
-  // Category vendors
   bluecoat: { check: 'https://sitereview.bluecoat.com/#/', submit: 'https://sitereview.bluecoat.com/#/' },
   brightcloud: { check: 'https://www.brightcloud.com/tools/url-ip-lookup.php', submit: 'https://www.brightcloud.com/tools/change-request-url.php' },
   checkpoint: { check: 'https://usercenter.checkpoint.com/ucapps/urlcat/' },
@@ -22,7 +16,6 @@ export const VENDOR_MANUAL_URLS: Record<string, { check?: string; submit?: strin
   trendmicro: { check: 'https://global.sitesafety.trendmicro.com', submit: 'https://global.sitesafety.trendmicro.com' },
   watchguard: { check: 'https://securityportal.watchguard.com/UrlCategory', submit: 'https://securityportal.watchguard.com/UrlCategory' },
   zvelo: { check: 'https://tools.zvelo.com/', submit: 'https://tools.zvelo.com/' },
-  // Reputation vendors — direct domain lookup pages
   virustotal: { check: 'https://www.virustotal.com/gui/domain/{domain}' },
   abuseipdb: { check: 'https://www.abuseipdb.com/check/{domain}' },
   abusech: { check: 'https://urlhaus.abuse.ch/browse.php?search={domain}' },

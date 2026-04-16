@@ -21,9 +21,7 @@ export default function Layout() {
 
   return (
     <div className="flex h-screen overflow-hidden">
-      {/* Sidebar */}
       <aside className="w-56 flex-shrink-0 bg-[hsl(var(--sidebar,var(--card)))] border-r border-[hsl(var(--sidebar-border,var(--border)))] flex flex-col">
-        {/* Logo */}
         <div className="px-5 py-5 flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
             <Shield size={16} className="text-primary-foreground" />
@@ -33,7 +31,6 @@ export default function Layout() {
           </div>
         </div>
 
-        {/* Nav */}
         <nav className="flex-1 px-3 py-2 space-y-0.5">
           {navItems.map(({ to, icon: Icon, label }) => (
             <NavLink
@@ -54,7 +51,6 @@ export default function Layout() {
           ))}
         </nav>
 
-        {/* Footer */}
         <div className="px-3 py-3 border-t border-[hsl(var(--sidebar-border,var(--border)))]">
           <div className="flex items-center justify-end mb-2 px-2">
             <button onClick={toggleTheme} className="p-1 rounded hover:bg-accent/50 text-muted-foreground hover:text-foreground transition-colors">
@@ -77,7 +73,6 @@ export default function Layout() {
         </div>
       </aside>
 
-      {/* Main */}
       <main className="flex-1 overflow-y-auto bg-background">
         <div className="p-6">
           <Outlet />

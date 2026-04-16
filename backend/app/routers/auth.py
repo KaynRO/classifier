@@ -18,7 +18,7 @@ PASSWORD_MIN_LENGTH = 8
 
 @router.post("/register", response_model=TokenResponse, status_code=201)
 @limiter.limit("5/hour")
-async def register(request: Request, data: UserCreate, db: AsyncSession = Depends(get_db)):
+async def register(request: Request, data: UserCreate, db: AsyncSession = Depends(get_db)) -> TokenResponse:
     if len(data.password) < PASSWORD_MIN_LENGTH:
         raise HTTPException(status_code=400, detail=f"Password must be at least {PASSWORD_MIN_LENGTH} characters")
     if data.password.isdigit() or data.password.isalpha():
@@ -47,7 +47,7 @@ async def register(request: Request, data: UserCreate, db: AsyncSession = Depend
 
 @router.post("/login", response_model=TokenResponse)
 @limiter.limit("10/minute")
-async def login(request: Request, data: UserLogin, db: AsyncSession = Depends(get_db)):
+async def login(request: Request, data: UserLogin, db: AsyncSession = Depends(get_db)) -> TokenResponse:
     result = await db.execute(select(User).where(User.username == data.username))
     user = result.scalar_one_or_none()
 
@@ -63,13 +63,11 @@ async def login(request: Request, data: UserLogin, db: AsyncSession = Depends(ge
 
 
 @router.post("/logout")
-async def logout(user: User = Depends(get_current_user)):
-    # Client-side token removal. Server-side blacklist would require Redis TTL store.
-    # For now, acknowledge the logout so the client knows to clear the token.
+async def logout(user: User = Depends(get_current_user)) -> dict:
     logger.info(f"User logged out: {user.username}")
     return {"detail": "Logged out successfully"}
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_me(user: User = Depends(get_current_user)):
+async def get_me(user: User = Depends(get_current_user)) -> UserResponse:
     return UserResponse.model_validate(user)

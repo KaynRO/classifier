@@ -8,7 +8,7 @@ from sqlalchemy.orm import relationship
 from app.database import Base
 
 
-def utcnow():
+def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
@@ -19,7 +19,7 @@ class User(Base):
     username = Column(String(100), unique=True, nullable=False, index=True)
     email = Column(String(255), unique=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
-    role = Column(String(20), nullable=False, default="viewer")  # admin, viewer
+    role = Column(String(20), nullable=False, default="viewer")
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), default=utcnow)
 
@@ -50,7 +50,7 @@ class Vendor(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(50), unique=True, nullable=False)
     display_name = Column(String(100), nullable=False)
-    vendor_type = Column(String(20), nullable=False)  # category, reputation
+    vendor_type = Column(String(20), nullable=False)
     supports_check = Column(Boolean, default=True)
     supports_submit = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
@@ -69,8 +69,8 @@ class CheckResult(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     domain_id = Column(UUID(as_uuid=True), ForeignKey("domains.id", ondelete="CASCADE"), nullable=False)
     vendor_id = Column(Integer, ForeignKey("vendors.id"), nullable=False)
-    action_type = Column(String(20), nullable=False)  # check, reputation, submit
-    status = Column(String(20), nullable=False, default="pending")  # pending, running, success, failed
+    action_type = Column(String(20), nullable=False)
+    status = Column(String(20), nullable=False, default="pending")
     category = Column(String(255))
     reputation = Column(String(255))
     raw_response = Column(JSONB)
@@ -110,7 +110,6 @@ class CheckHistory(Base):
 
 
 class AppConfig(Base):
-    """Key-value store for runtime configuration (API keys, credentials)."""
     __tablename__ = "app_config"
 
     key = Column(String(100), primary_key=True)
@@ -127,8 +126,8 @@ class Job(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     domain_id = Column(UUID(as_uuid=True), ForeignKey("domains.id", ondelete="CASCADE"), nullable=False)
-    action_type = Column(String(20), nullable=False)  # check, reputation, submit
-    vendor_filter = Column(String(50))  # null = all vendors
+    action_type = Column(String(20), nullable=False)
+    vendor_filter = Column(String(50))
     status = Column(String(20), nullable=False, default="pending")
     celery_task_id = Column(String(255))
     progress = Column(JSONB, default=dict)

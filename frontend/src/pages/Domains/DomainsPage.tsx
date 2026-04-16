@@ -3,30 +3,20 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { domainsApi, jobsApi, vendorsApi } from '@/api/client'
 import StatusBadge from '@/components/StatusBadge'
 import CategoryBadge from '@/components/CategoryBadge'
-import { Plus, Search, Trash2, X, Loader2, ScanSearch, Download, PlayCircle, SendHorizonal } from 'lucide-react'
+import { Plus, Search, Trash2, X, Loader2, PlayCircle, SendHorizonal, ExternalLink } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { CATEGORIES, HIDDEN_VENDORS, getManualUrl } from '@/lib/constants'
-import { ExternalLink } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
-// Reputation vendors write their aggregate into `reputation`; historically
-// some rows wrote into `category`. Read either one.
 function reputationString(r: any): string {
   return r?.reputation || r?.category || ''
 }
 
-
-// Pull the parenthetical detail out of an aggregate string like
-// "Clean (0/94 harmless)" → "0/94 harmless".
 function extractDetail(raw: string): string | null {
   const m = raw.match(/\(([^)]+)\)/)
   return m ? m[1] : null
 }
 
-
-// Map a reputation check_result to a badge status key. Uses dedicated
-// malicious/suspicious keys so the badge component never confuses a terminal
-// warning state with a running/in-progress state.
 function deriveBadgeStatus(r: any): string | null | undefined {
   if (!r) return undefined
   if (r.status !== 'success') return r.status
@@ -36,7 +26,6 @@ function deriveBadgeStatus(r: any): string | null | undefined {
   if (value.startsWith('suspicious')) return 'suspicious'
   return 'clean'
 }
-
 
 function timeAgo(dateStr: string | null | undefined): string {
   if (!dateStr) return ''
@@ -52,9 +41,6 @@ function timeAgo(dateStr: string | null | undefined): string {
   return `${days}d ago`
 }
 
-/* ========== COLUMN RESIZE ========== */
-// Default width factories — stable references so the hook's effect doesn't churn
-// Index 0 = domain column, 1..N = vendor columns (no separate actions column)
 const SAFETY_DEFAULT_W = (i: number) => (i === 0 ? 230 : 150)
 const CAT_DEFAULT_W    = (i: number) => (i === 0 ? 250 : 200)
 
@@ -65,10 +51,8 @@ function useResizableColumns(count: number, defaultW: (i: number) => number) {
   const colRefs   = useRef<(HTMLTableColElement | null)[]>([])
   const liveW     = useRef<number[]>([])
 
-  // Keep live ref in sync with committed state
   useEffect(() => { liveW.current = [...widths] }, [widths])
 
-  // Extend / shrink when vendor count changes after initial render
   useEffect(() => {
     setWidths(prev => {
       if (prev.length === count) return prev
@@ -89,7 +73,6 @@ function useResizableColumns(count: number, defaultW: (i: number) => number) {
     const onMove = (ev: MouseEvent) => {
       const newW = Math.max(80, startW + ev.clientX - startX)
       liveW.current[idx] = newW
-      // Direct DOM update — zero React overhead during drag
       const col = colRefs.current[idx]
       if (col) col.style.width = `${newW}px`
     }
@@ -97,7 +80,6 @@ function useResizableColumns(count: number, defaultW: (i: number) => number) {
     const onUp = () => {
       document.body.style.cursor    = ''
       document.body.style.userSelect = ''
-      // Commit once on mouseup so sticky left values re-render
       setWidths([...liveW.current])
       document.removeEventListener('mousemove', onMove)
       document.removeEventListener('mouseup',   onUp)
@@ -126,8 +108,9 @@ function ResizeHandle({ onMouseDown }: { onMouseDown: (e: React.MouseEvent) => v
 export default function DomainsPage() {
   const [search, setSearch] = useState('')
   const [showAdd, setShowAdd] = useState(false)
-  const [scanningAll, setScanningAll] = useState(false)
   const [domainToDelete, setDomainToDelete] = useState<any>(null)
+  const [bulkSafetyPending, setBulkSafetyPending] = useState(false)
+  const [bulkCatPending, setBulkCatPending] = useState(false)
   const queryClient = useQueryClient()
 
   const { data, isLoading } = useQuery({
@@ -147,12 +130,25 @@ export default function DomainsPage() {
     onError: () => toast.error('Failed to delete domain'),
   })
 
+  const bulkReputationMutation = useMutation({
+    mutationFn: () => jobsApi.bulkReputation(),
+    onMutate: () => { setBulkSafetyPending(true); setTimeout(() => setBulkSafetyPending(false), 15000) },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['jobs'] }); toast.success('Reputation check started for all domains') },
+    onError: () => toast.error('Failed to start bulk reputation check'),
+  })
+
   const bulkCheckMutation = useMutation({
     mutationFn: () => jobsApi.bulkCheck(),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['jobs'] }); toast.success('Scan started for all domains') },
-    onError: () => toast.error('Failed to start bulk scan'),
-    onMutate: () => setScanningAll(true),
-    onSettled: () => setScanningAll(false),
+    onMutate: () => { setBulkCatPending(true); setTimeout(() => setBulkCatPending(false), 15000) },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['jobs'] }); toast.success('Check started for all domains') },
+    onError: () => toast.error('Failed to start bulk check'),
+  })
+
+  const bulkSubmitMutation = useMutation({
+    mutationFn: () => jobsApi.bulkSubmit(),
+    onMutate: () => { setBulkCatPending(true); setTimeout(() => setBulkCatPending(false), 15000) },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['jobs'] }); toast.success('Submit started for all domains') },
+    onError: () => toast.error('Failed to start bulk submit'),
   })
 
   const categoryVendors  = vendors?.filter((v: any) => v.vendor_type === 'category'   && !HIDDEN_VENDORS.has(v.name)) || []
@@ -165,38 +161,12 @@ export default function DomainsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold tracking-tight">Domain Categorization & Safety</h2>
           <p className="text-sm text-muted-foreground mt-0.5">Threat reputation and web proxy categorization across security vendors</p>
         </div>
         <div className="flex gap-2">
-          <button
-            onClick={async () => {
-              try {
-                const res = await domainsApi.exportCsv()
-                const url = window.URL.createObjectURL(new Blob([res.data]))
-                const a = document.createElement('a')
-                a.href = url
-                a.download = `classifier_export_${new Date().toISOString().slice(0,10)}.csv`
-                a.click()
-                window.URL.revokeObjectURL(url)
-                toast.success('Export downloaded')
-              } catch { toast.error('Export failed') }
-            }}
-            className="flex items-center gap-2 px-4 py-2 rounded-md border border-border text-sm font-medium hover:bg-accent transition-colors"
-          >
-            <Download size={14} /> Export CSV
-          </button>
-          <button
-            onClick={() => bulkCheckMutation.mutate()}
-            disabled={scanningAll}
-            className="flex items-center gap-2 px-4 py-2 rounded-md border border-border text-sm font-medium hover:bg-accent transition-colors disabled:opacity-50"
-          >
-            {scanningAll ? <Loader2 size={14} className="animate-spin" /> : <ScanSearch size={14} />}
-            Scan All Domains
-          </button>
           <button
             onClick={() => setShowAdd(true)}
             className="flex items-center gap-2 px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:brightness-110 transition-all"
@@ -206,7 +176,6 @@ export default function DomainsPage() {
         </div>
       </div>
 
-      {/* Search */}
       <div className="relative max-w-md">
         <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
         <input
@@ -218,12 +187,19 @@ export default function DomainsPage() {
         />
       </div>
 
-      {/* SAFETY STATUS */}
       <section className="rounded-lg border border-border bg-card overflow-hidden">
-        <div className="px-5 py-3 border-b border-border bg-[hsl(var(--table-header,var(--secondary)))]">
+        <div className="px-5 py-3 border-b border-border bg-[hsl(var(--table-header,var(--secondary)))] flex items-center justify-between">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             Safety Status <span className="text-muted-foreground/50 font-normal normal-case">({reputationVendors.length} vendor{reputationVendors.length === 1 ? '' : 's'})</span>
           </h3>
+          <button
+            onClick={() => bulkReputationMutation.mutate()}
+            disabled={bulkReputationMutation.isPending}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-[11px] font-medium hover:bg-accent transition-colors disabled:opacity-50"
+          >
+            {bulkReputationMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <PlayCircle size={12} />}
+            Verify All Domains
+          </button>
         </div>
         <div className="overflow-x-auto">
           <table className="text-sm" style={{ tableLayout: 'fixed', minWidth: `${safetyW.reduce((a, b) => a + b, 0)}px` }}>
@@ -248,7 +224,7 @@ export default function DomainsPage() {
             </thead>
             <tbody>
               {data?.items?.map((domain: any) => (
-                <SafetyRow key={domain.id} domain={domain} reputationVendors={reputationVendors} onDelete={() => setDomainToDelete(domain)} />
+                <SafetyRow key={domain.id} domain={domain} reputationVendors={reputationVendors} bulkPending={bulkSafetyPending} onDelete={() => setDomainToDelete(domain)} />
               ))}
               {isLoading && <LoadingRow cols={1 + reputationVendors.length} />}
               {!isLoading && (!data?.items || data.items.length === 0) && (
@@ -259,12 +235,29 @@ export default function DomainsPage() {
         </div>
       </section>
 
-      {/* WEB PROXY CATEGORIZATION */}
       <section className="rounded-lg border border-border bg-card overflow-hidden">
-        <div className="px-5 py-3 border-b border-border bg-[hsl(var(--table-header,var(--secondary)))]">
+        <div className="px-5 py-3 border-b border-border bg-[hsl(var(--table-header,var(--secondary)))] flex items-center justify-between">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             Web Proxy Categorization <span className="text-muted-foreground/50 font-normal normal-case">({categoryVendors.length} vendor{categoryVendors.length === 1 ? '' : 's'})</span>
           </h3>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => bulkCheckMutation.mutate()}
+              disabled={bulkCheckMutation.isPending}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-[11px] font-medium hover:bg-accent transition-colors disabled:opacity-50"
+            >
+              {bulkCheckMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <PlayCircle size={12} />}
+              Check All Domains
+            </button>
+            <button
+              onClick={() => bulkSubmitMutation.mutate()}
+              disabled={bulkSubmitMutation.isPending}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary/15 text-primary text-[11px] font-medium hover:bg-primary/25 transition-colors disabled:opacity-50"
+            >
+              {bulkSubmitMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <SendHorizonal size={12} />}
+              Submit All Domains
+            </button>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="text-sm" style={{ tableLayout: 'fixed', minWidth: `${catW.reduce((a, b) => a + b, 0)}px` }}>
@@ -282,6 +275,7 @@ export default function DomainsPage() {
                   key={domain.id}
                   domain={domain}
                   categoryVendors={categoryVendors}
+                  bulkPending={bulkCatPending}
                   onDelete={() => setDomainToDelete(domain)}
                 />
               ))}
@@ -310,14 +304,12 @@ export default function DomainsPage() {
   )
 }
 
-/* ========== VENDOR COLUMN HEADERS WITH TIMESTAMPS ========== */
 function VendorHeaders({ categoryVendors, domains, widths, startResize }: {
   categoryVendors: any[]
   domains: any[]
   widths: number[]
   startResize: (idx: number, e: React.MouseEvent) => void
 }) {
-  // Aggregate latest check time per vendor across all domains
   const allResults = useQuery({
     queryKey: ['all-results-for-headers'],
     queryFn: async () => {
@@ -360,7 +352,6 @@ function VendorHeaders({ categoryVendors, domains, widths, startResize }: {
   )
 }
 
-
 function LoadingRow({ cols }: { cols: number }) {
   return <tr><td colSpan={cols} className="px-5 py-10 text-center text-muted-foreground text-sm"><Loader2 size={18} className="animate-spin inline mr-2 text-primary/50" />Loading domains...</td></tr>
 }
@@ -377,9 +368,7 @@ function EmptyRow({ cols, text }: { cols: number; text: string }) {
   )
 }
 
-
-/* ========== SAFETY ROW ========== */
-function SafetyRow({ domain, reputationVendors, onDelete }: { domain: any; reputationVendors: any[]; onDelete: () => void }) {
+function SafetyRow({ domain, reputationVendors, bulkPending, onDelete }: { domain: any; reputationVendors: any[]; bulkPending?: boolean; onDelete: () => void }) {
   const queryClient = useQueryClient()
 
   const { data: results } = useQuery({
@@ -388,12 +377,9 @@ function SafetyRow({ domain, reputationVendors, onDelete }: { domain: any; reput
     refetchInterval: 2000,
   })
 
-  // Only use 'reputation' action results for the Safety table
   const resultMap: Record<number, any> = {}
   results?.filter((r: any) => r.action_type === 'reputation').forEach((r: any) => { resultMap[r.vendor_id] = r })
 
-  // Optimistic tracker so the badge flips to Running immediately after click,
-  // even if the next 2s poll hasn't yet picked up the worker's 'running' write.
   const [pendingVendors, setPendingVendors] = useState<Set<string>>(new Set())
   const markPending = (vendor: string) => {
     setPendingVendors(prev => { const n = new Set(prev); n.add(vendor); return n })
@@ -423,8 +409,7 @@ function SafetyRow({ domain, reputationVendors, onDelete }: { domain: any; reput
     onError: () => toast.error('Cancel failed'),
   })
 
-  // True when any reputation vendor for this domain is in-flight
-  const anyBusy = reputationVendors.some((v: any) => {
+  const anyBusy = bulkPending || reputationVendors.some((v: any) => {
     const r = resultMap[v.id]
     return r?.status === 'running' || r?.status === 'pending' || pendingVendors.has(v.name)
   })
@@ -463,12 +448,10 @@ function SafetyRow({ domain, reputationVendors, onDelete }: { domain: any; reput
       </td>
       {reputationVendors.map((v: any) => {
         const r = resultMap[v.id]
-        const busy = r?.status === 'running' || r?.status === 'pending' || pendingVendors.has(v.name)
+        const busy = r?.status === 'running' || r?.status === 'pending' || pendingVendors.has(v.name) || bulkPending
         const lastFailed = r?.status === 'failed'
         const manualUrl = lastFailed ? getManualUrl(v.name, 'check', domain.domain) : null
         const hasResult = r?.status && r.status !== 'running' && r.status !== 'pending'
-        // Engine returns an aggregate like "Clean (0/94 harmless)" — the parenthetical is shown
-        // between the status badge and the Re-verify button.
         const repString = reputationString(r)
         const detail = !busy && r?.status === 'success' && repString ? extractDetail(repString) : null
         const badgeStatus = deriveBadgeStatus(r)
@@ -516,10 +499,8 @@ function SafetyRow({ domain, reputationVendors, onDelete }: { domain: any; reput
   )
 }
 
-
-/* ========== CATEGORIZATION ROW ========== */
-function CategorizationRow({ domain, categoryVendors, onDelete }: {
-  domain: any; categoryVendors: any[]; onDelete: () => void
+function CategorizationRow({ domain, categoryVendors, bulkPending, onDelete }: {
+  domain: any; categoryVendors: any[]; bulkPending?: boolean; onDelete: () => void
 }) {
   const queryClient = useQueryClient()
 
@@ -529,13 +510,6 @@ function CategorizationRow({ domain, categoryVendors, onDelete }: {
     refetchInterval: 2000,
   })
 
-  // Optimistic per-vendor running flag — flips on immediately when a button
-  // is clicked, clears after 2.5s (by which time the refetch will have picked
-  // up the actual 'running' row from the worker).
-  // Optimistic running flags — keep them alive for 15s (well past the time the
-  // worker writes the 'running' row to DB, which the 2s poll will then pick up
-  // and sustain). If the DB row arrives sooner, both isCheckBusy sources agree
-  // and the spinner stays continuous — no flicker gap.
   const [pendingCheck, setPendingCheck] = useState<Set<string>>(new Set())
   const [pendingSubmit, setPendingSubmit] = useState<Set<string>>(new Set())
   const markCheckPending = (vendor: string) => {
@@ -589,16 +563,12 @@ function CategorizationRow({ domain, categoryVendors, onDelete }: {
     onError: () => toast.error('Cancel failed'),
   })
 
-  // Only use 'check' action results for the Categorization table
   const resultMap: Record<number, any> = {}
   results?.filter((r: any) => r.action_type === 'check').forEach((r: any) => { resultMap[r.vendor_id] = r })
-  // Separate map for submit results so we can surface a "Manual Submit" button on failure
   const submitResultMap: Record<number, any> = {}
   results?.filter((r: any) => r.action_type === 'submit').forEach((r: any) => { submitResultMap[r.vendor_id] = r })
 
-  // True when ANY vendor cell for this domain is in-flight (DB or optimistic).
-  // Used to replace the Check All / Submit All buttons with a spinner.
-  const anyBusy = categoryVendors.some((v: any) => {
+  const anyBusy = bulkPending || categoryVendors.some((v: any) => {
     const r = resultMap[v.id]
     const sr = submitResultMap[v.id]
     return r?.status === 'running' || r?.status === 'pending' || pendingCheck.has(v.name)
@@ -667,7 +637,6 @@ function CategorizationRow({ domain, categoryVendors, onDelete }: {
           return (
             <td key={v.id} className="px-3 py-2 text-center">
               <div className="flex flex-col items-center gap-1">
-                {/* Result — show running badge whenever check OR submit is in-flight */}
                 {isCheckBusy || isSubmitBusy ? (
                   <StatusBadge status="running" onCancel={() => cancelMutation.mutate(v.name)} />
                 ) : r?.status === 'success' ? (
@@ -675,11 +644,9 @@ function CategorizationRow({ domain, categoryVendors, onDelete }: {
                 ) : (
                   <StatusBadge status={r?.status} />
                 )}
-                {/* Timestamp */}
                 {r?.completed_at && !isCheckBusy && !isSubmitBusy && (
                   <span className="text-[9px] text-muted-foreground/50">{timeAgo(r.completed_at)}</span>
                 )}
-                {/* Buttons */}
                 <div className="flex flex-wrap justify-center items-center gap-1 mt-0.5">
                   <button
                     onClick={() => checkVendorMutation.mutate(v.name)}
@@ -709,7 +676,6 @@ function CategorizationRow({ domain, categoryVendors, onDelete }: {
                     </button>
                   )}
                 </div>
-                {/* Manual fallback buttons — appear only after automation failed */}
                 {(manualCheckUrl || manualSubmitUrl) && (
                   <div className="flex items-center gap-1 mt-0.5">
                     {manualCheckUrl && (
@@ -747,8 +713,6 @@ function CategorizationRow({ domain, categoryVendors, onDelete }: {
   )
 }
 
-
-/* ========== DELETE CONFIRM DIALOG ========== */
 function DeleteConfirmDialog({ domain, onConfirm, onCancel }: { domain: any; onConfirm: () => void; onCancel: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onCancel}>
@@ -776,8 +740,6 @@ function DeleteConfirmDialog({ domain, onConfirm, onCancel }: { domain: any; onC
   )
 }
 
-
-/* ========== ADD DOMAIN MODAL ========== */
 function AddDomainModal({ onClose }: { onClose: () => void }) {
   const [tab, setTab] = useState<'manual' | 'csv'>('manual')
   const [domain, setDomain] = useState('')
@@ -876,13 +838,11 @@ function AddDomainModal({ onClose }: { onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
       <div className="w-full max-w-xl bg-card rounded-xl border border-border shadow-2xl" onClick={e => e.stopPropagation()}>
-        {/* Header */}
         <div className="flex items-center justify-between px-6 pt-5 pb-3">
           <h3 className="text-lg font-semibold">Add Domains</h3>
           <button onClick={onClose} className="p-1 rounded hover:bg-accent text-muted-foreground"><X size={16} /></button>
         </div>
 
-        {/* Tabs */}
         <div className="flex px-6 gap-1 border-b border-border">
           <button onClick={() => setTab('manual')} className={tabClass('manual')}>Manual Entry</button>
           <button onClick={() => setTab('csv')} className={tabClass('csv')}>CSV Import</button>
@@ -940,7 +900,6 @@ function AddDomainModal({ onClose }: { onClose: () => void }) {
           ) : (
             <>
               <div className="space-y-4">
-                {/* Template download */}
                 <div className="flex items-center justify-between p-3 rounded-md bg-accent/50 border border-border">
                   <div>
                     <p className="text-sm font-medium">CSV Template</p>
@@ -952,7 +911,6 @@ function AddDomainModal({ onClose }: { onClose: () => void }) {
                   </button>
                 </div>
 
-                {/* File upload */}
                 <div>
                   <label className="block text-xs font-medium text-muted-foreground mb-1.5">Upload CSV File</label>
                   <div
@@ -979,7 +937,6 @@ function AddDomainModal({ onClose }: { onClose: () => void }) {
                   </div>
                 </div>
 
-                {/* Preview parsed rows */}
                 {csvParsed.length > 0 && (
                   <div className="rounded-md border border-border overflow-hidden max-h-40 overflow-y-auto">
                     <table className="w-full text-xs">
@@ -1006,7 +963,6 @@ function AddDomainModal({ onClose }: { onClose: () => void }) {
                   </div>
                 )}
 
-                {/* Import progress */}
                 {csvImporting && (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between text-xs text-muted-foreground">

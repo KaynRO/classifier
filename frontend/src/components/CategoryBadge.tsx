@@ -16,8 +16,7 @@ export default function CategoryBadge({ category, desired }: { category?: string
   const isMatch = desired && lower.includes(desired.toLowerCase())
 
   let color = 'bg-secondary/80 text-secondary-foreground'
-  // Risk / warning keywords FIRST — a "Suspicious" result must not fall
-  // through to a generic grey pill because it happens to contain "business".
+  // Risk keywords checked first to avoid matching category keywords inside risky classifications
   if (lower.includes('malicious') || lower.includes('phishing') || lower.includes('malware') || lower.includes('spam') || lower.includes('fraud') || lower.includes('scam')) {
     color = 'bg-red-500/20 text-red-400 border border-red-500/30'
   } else if (lower.includes('suspicious') || lower.includes('high risk') || lower.includes('medium risk')) {

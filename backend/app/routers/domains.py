@@ -1,5 +1,4 @@
-import csv
-import io
+import csv, io
 from datetime import datetime
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -25,7 +24,7 @@ async def list_domains(
     is_active: bool = Query(True),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
-):
+) -> PaginatedResponse:
     query = select(Domain).where(Domain.is_active == is_active)
     if search:
         escaped = search.replace('%', '\\%').replace('_', '\\_')
@@ -52,7 +51,7 @@ async def create_domain(
     data: DomainCreate,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_admin),
-):
+) -> DomainResponse:
     existing = await db.execute(
         select(Domain).where(Domain.domain == data.domain, Domain.is_active == True)
     )
@@ -67,7 +66,7 @@ async def create_domain(
 
 
 @router.get("/{domain_id}", response_model=DomainResponse)
-async def get_domain(domain_id: UUID, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+async def get_domain(domain_id: UUID, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)) -> DomainResponse:
     result = await db.execute(select(Domain).where(Domain.id == domain_id))
     domain = result.scalar_one_or_none()
     if not domain:
@@ -81,7 +80,7 @@ async def update_domain(
     data: DomainUpdate,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_admin),
-):
+) -> DomainResponse:
     result = await db.execute(select(Domain).where(Domain.id == domain_id))
     domain = result.scalar_one_or_none()
     if not domain:
@@ -96,7 +95,7 @@ async def update_domain(
 
 
 @router.delete("/{domain_id}", status_code=204)
-async def delete_domain(domain_id: UUID, db: AsyncSession = Depends(get_db), user: User = Depends(require_admin)):
+async def delete_domain(domain_id: UUID, db: AsyncSession = Depends(get_db), user: User = Depends(require_admin)) -> None:
     result = await db.execute(select(Domain).where(Domain.id == domain_id))
     domain = result.scalar_one_or_none()
     if not domain:
@@ -107,7 +106,7 @@ async def delete_domain(domain_id: UUID, db: AsyncSession = Depends(get_db), use
 
 
 @router.get("/{domain_id}/results", response_model=list[CheckResultResponse])
-async def get_domain_results(domain_id: UUID, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+async def get_domain_results(domain_id: UUID, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)) -> list[CheckResultResponse]:
     result = await db.execute(
         select(CheckResult)
         .options(selectinload(CheckResult.vendor))
@@ -125,7 +124,7 @@ async def get_domain_history(
     vendor: str = Query(None),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
-):
+) -> PaginatedResponse:
     query = select(CheckHistory).where(CheckHistory.domain_id == domain_id)
 
     count_q = select(func.count()).select_from(query.subquery())
@@ -146,35 +145,27 @@ async def get_domain_history(
 async def export_domains_csv(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
-):
-    """Export all domains with latest vendor results + full check history as CSV."""
-
-    # Get all active domains
+) -> StreamingResponse:
     domains = (await db.execute(
         select(Domain).where(Domain.is_active == True).order_by(Domain.domain)
     )).scalars().all()
 
-    # Get all active vendors
     vendors = (await db.execute(
         select(Vendor).where(Vendor.is_active == True).order_by(Vendor.vendor_type, Vendor.name)
     )).scalars().all()
 
-    # Get all results
     all_results = (await db.execute(
         select(CheckResult).options(selectinload(CheckResult.vendor))
     )).scalars().all()
 
-    # Get all history
     all_history = (await db.execute(
         select(CheckHistory).order_by(CheckHistory.created_at.desc())
     )).scalars().all()
 
-    # Build result map: (domain_id, vendor_id) -> result
     result_map = {}
     for r in all_results:
         result_map[(str(r.domain_id), r.vendor_id)] = r
 
-    # Build history map: domain_id -> list of history entries
     history_map: dict[str, list] = {}
     for h in all_history:
         key = str(h.domain_id)
@@ -185,7 +176,6 @@ async def export_domains_csv(
     output = io.StringIO()
     writer = csv.writer(output)
 
-    # --- Sheet 1: Current Status ---
     writer.writerow(["=== CURRENT STATUS ==="])
     header = ["Domain", "Desired Category", "Email", "Notes"]
     for v in vendors:
@@ -210,7 +200,6 @@ async def export_domains_csv(
     writer.writerow([])
     writer.writerow([])
 
-    # --- Sheet 2: Check History ---
     writer.writerow(["=== CHECK HISTORY ==="])
     writer.writerow(["Domain", "Vendor", "Action", "Status", "Category", "Reputation", "Error", "Date"])
 
