@@ -1,20 +1,20 @@
+import re, html
 from datetime import datetime
 from typing import Optional
 from uuid import UUID
-import re
-import html
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
-# --- Auth ---
 class UserCreate(BaseModel):
     username: str = Field(min_length=3, max_length=100)
     email: str = Field(min_length=5, max_length=255)
     password: str = Field(min_length=8)
 
+
 class UserLogin(BaseModel):
     username: str
     password: str
+
 
 class UserResponse(BaseModel):
     id: UUID
@@ -27,20 +27,22 @@ class UserResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
 
 
-# --- Domain ---
 DOMAIN_RE = re.compile(r'^[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$')
 VALID_CATEGORIES = {"Business", "Education", "Finance", "Health", "News", "Internet"}
 
-def _sanitize(v: str | None) -> str | None:
+
+def sanitize(v: str | None) -> str | None:
     if v is None:
         return None
     return html.escape(v.strip(), quote=True)
+
 
 class DomainCreate(BaseModel):
     domain: str = Field(min_length=1, max_length=255)
@@ -53,9 +55,6 @@ class DomainCreate(BaseModel):
     @field_validator("domain")
     @classmethod
     def validate_domain(cls, v: str) -> str:
-        # lstrip("https://") would treat the argument as a CHARACTER SET and
-        # chew off any leading h/t/p/s/:/ from the domain — e.g. "salt-bank.com"
-        # would silently become "alt-bank.com". Use explicit prefix removal.
         v = v.strip().lower()
         for prefix in ("https://", "http://"):
             if v.startswith(prefix):
@@ -76,7 +75,8 @@ class DomainCreate(BaseModel):
     @field_validator("notes", "custom_text", "display_name")
     @classmethod
     def sanitize_text(cls, v: str | None) -> str | None:
-        return _sanitize(v)
+        return sanitize(v)
+
 
 class DomainUpdate(BaseModel):
     display_name: Optional[str] = None
@@ -94,9 +94,11 @@ class DomainUpdate(BaseModel):
     @field_validator("notes", "custom_text", "display_name")
     @classmethod
     def sanitize_text(cls, v: str | None) -> str | None:
-        return _sanitize(v)
+        return sanitize(v)
+
     email_for_submit: Optional[str] = None
     is_active: Optional[bool] = None
+
 
 class DomainResponse(BaseModel):
     id: UUID
@@ -114,7 +116,6 @@ class DomainResponse(BaseModel):
         from_attributes = True
 
 
-# --- Vendor ---
 class VendorResponse(BaseModel):
     id: int
     name: str
@@ -128,7 +129,6 @@ class VendorResponse(BaseModel):
         from_attributes = True
 
 
-# --- Check Result ---
 class CheckResultResponse(BaseModel):
     id: UUID
     domain_id: UUID
@@ -149,10 +149,10 @@ class CheckResultResponse(BaseModel):
         from_attributes = True
 
 
-# --- Job ---
 class JobCreate(BaseModel):
     domain_id: UUID
     vendor: Optional[str] = None
+
 
 class JobResponse(BaseModel):
     id: UUID
@@ -170,7 +170,6 @@ class JobResponse(BaseModel):
         from_attributes = True
 
 
-# --- Dashboard ---
 class DashboardSummary(BaseModel):
     total_domains: int
     active_domains: int
@@ -178,6 +177,7 @@ class DashboardSummary(BaseModel):
     pending_jobs: int
     domains_with_mismatches: int
     last_full_scan: Optional[datetime]
+
 
 class MatrixCell(BaseModel):
     vendor_name: str
@@ -188,9 +188,11 @@ class MatrixCell(BaseModel):
     reputation: Optional[str]
     last_checked: Optional[datetime]
 
+
 class MatrixRow(BaseModel):
     domain: DomainResponse
     results: list[MatrixCell]
+
 
 class PaginatedResponse(BaseModel):
     items: list

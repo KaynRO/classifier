@@ -1,7 +1,6 @@
-import sys, os, time, traceback, io
+import sys, os, time, io
 from typing import Optional
 
-# Add classifier root to path so we can import modules
 CLASSIFIER_ROOT = os.environ.get("CLASSIFIER_ROOT", "/app/classifier")
 if CLASSIFIER_ROOT not in sys.path:
     sys.path.insert(0, CLASSIFIER_ROOT)
@@ -55,7 +54,6 @@ def setup_credentials() -> None:
             val = db_config.get(attr_name) or os.environ.get(env_key)
             if val:
                 setattr(creds, attr_name, val)
-        # Reset dual solver singleton so it picks up updated keys
         try:
             import helpers.captcha_dual_solver as ds
             ds._solver_instance = None
@@ -65,8 +63,7 @@ def setup_credentials() -> None:
         pass
 
 
-def get_vendor_class(vendor_name: str):
-
+def get_vendor_class(vendor_name: str) -> type:
     vendor_map = {
         "trendmicro": ("modules.trendmicro", "TrendMicro"),
         "mcafee": ("modules.mcafee", "McAfee"),
@@ -95,10 +92,8 @@ def get_vendor_class(vendor_name: str):
     return getattr(module, class_name)
 
 
-# Vendors that are API-based (no browser needed)
 API_VENDORS = {"virustotal", "abusech", "abuseipdb", "googlesafebrowsing"}
 
-# Vendors that use Playwright + BrightData (no local driver needed)
 PLAYWRIGHT_VENDORS = {"intelixsophos", "fortiguard"}
 
 
@@ -118,7 +113,7 @@ def run_vendor_operation(
     result = {"vendor": vendor_name, "domain": domain, "action": action}
 
     if vendor_name in API_VENDORS:
-        import io, logging
+        import logging
         log_capture = io.StringIO()
         handler = logging.StreamHandler(log_capture)
         handler.setLevel(logging.DEBUG)
@@ -143,8 +138,6 @@ def run_vendor_operation(
             aggregate = str(check_result[0])
 
         if aggregate:
-            # Reputation vendors populate the `reputation` column; `category` stays empty
-            # because a reputation vendor has no content category.
             result["reputation"] = aggregate
             first = aggregate.split()[0].lower().rstrip("(:,")
             if first.startswith("error"):
@@ -155,7 +148,6 @@ def run_vendor_operation(
         result["status"] = "completed"
         return result
 
-    # Playwright + BrightData vendors (no local driver needed)
     if vendor_name in PLAYWRIGHT_VENDORS:
         try:
             url = domain if domain.startswith(("http://", "https://")) else f"https://{domain}"
@@ -176,7 +168,6 @@ def run_vendor_operation(
             result["status"] = "failed"
             raise
 
-    # Browser-based vendors
     from seleniumbase import Driver
     from helpers.utils import set_captcha_api_key
     from helpers.credentials import twocaptcha_api_key

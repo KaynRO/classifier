@@ -4,7 +4,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { domainsApi, jobsApi, vendorsApi } from '@/api/client'
 import toast from 'react-hot-toast'
 import { CATEGORIES, HIDDEN_VENDORS } from '@/lib/constants'
-import { useWebSocket } from '@/context/WebSocketContext'
 import StatusBadge from '@/components/StatusBadge'
 import CategoryBadge from '@/components/CategoryBadge'
 import { ArrowLeft, Play, Send, RefreshCw, Save, Loader2 } from 'lucide-react'
@@ -13,7 +12,6 @@ export default function DomainDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const { messages } = useWebSocket()
 
   const { data: domain } = useQuery({
     queryKey: ['domain', id],
@@ -26,9 +24,6 @@ export default function DomainDetailPage() {
     refetchInterval: 2000,
   })
 
-  // Optimistic "just clicked" tracker: vendor name → true for ~1.5s after a
-  // re-check/submit click, so the card shows the running badge even if the
-  // next refetch hasn't yet caught the worker's 'running' row write.
   const [pendingVendors, setPendingVendors] = useState<Set<string>>(new Set())
   const markPending = (vendor: string) => {
     setPendingVendors(prev => { const next = new Set(prev); next.add(vendor); return next })
@@ -72,7 +67,6 @@ export default function DomainDetailPage() {
     onSuccess: () => refetchResults(),
   })
 
-  // Editing state
   const [editing, setEditing] = useState(false)
   const [desiredCategory, setDesiredCategory] = useState('')
   const [notes, setNotes] = useState('')
@@ -102,7 +96,6 @@ export default function DomainDetailPage() {
 
   const categories = CATEGORIES
 
-  // Build result lookup by vendor name
   const resultMap: Record<string, any> = {}
   results?.forEach((r: any) => {
     const vendorName = vendors?.find((v: any) => v.id === r.vendor_id)?.name
@@ -114,7 +107,6 @@ export default function DomainDetailPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex items-center gap-4">
         <button onClick={() => navigate('/domains')} className="p-2 rounded-md hover:bg-accent"><ArrowLeft size={18} /></button>
         <div className="flex-1">
@@ -136,7 +128,6 @@ export default function DomainDetailPage() {
         </div>
       </div>
 
-      {/* Domain Config */}
       <div className="rounded-lg border border-border bg-card p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-semibold">Configuration</h3>
@@ -185,17 +176,12 @@ export default function DomainDetailPage() {
         )}
       </div>
 
-      {/* Category Vendor Cards */}
       <div>
         <h3 className="font-semibold mb-3">Category Vendors</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {categoryVendors.map((vendor: any) => {
             const r = resultMap[vendor.name]
             const busy = r?.status === 'running' || r?.status === 'pending' || pendingVendors.has(vendor.name)
-            // For category vendors, only show a status badge for non-success states
-            // (running, failed, cancelled, etc.). A successful check is conveyed by
-            // the CategoryBadge below — an extra "Success" / "Clean" badge here would
-            // be redundant and semantically wrong ("Clean" belongs to reputation).
             const showStatusBadge = busy || (r?.status && r.status !== 'success')
             return (
               <div key={vendor.id} className="rounded-lg border border-border bg-card p-4">
@@ -243,14 +229,12 @@ export default function DomainDetailPage() {
         </div>
       </div>
 
-      {/* Reputation Vendors */}
       <div>
         <h3 className="font-semibold mb-3">Reputation Vendors</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
           {reputationVendors.map((vendor: any) => {
             const r = resultMap[vendor.name]
             const busy = r?.status === 'running' || r?.status === 'pending' || pendingVendors.has(vendor.name)
-            // Reputation aggregates may live in `reputation` (new bridge) or `category` (old rows)
             const repString: string = r?.reputation || r?.category || ''
             const repLower = repString.toLowerCase()
             let badgeStatus: string | undefined = r?.status
@@ -290,7 +274,6 @@ export default function DomainDetailPage() {
         </div>
       </div>
 
-      {/* History */}
       {history?.items && history.items.length > 0 && (
         <div className="rounded-lg border border-border bg-card">
           <div className="p-4 border-b border-border">

@@ -1,18 +1,11 @@
-import json
-import os
-import sys
-import traceback
+import json, os, traceback, redis
 from datetime import datetime, timezone
 from uuid import UUID
-
-import redis
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
-
 from app.tasks.celery_app import celery_app
 from app.models import Job, Domain, Vendor, CheckResult, CheckHistory
 
-# Database setup for sync Celery tasks
 DATABASE_URL = os.environ.get("DATABASE_URL_SYNC", "postgresql://classifier:changeme@postgres:5432/classifier")
 REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 
@@ -20,11 +13,11 @@ engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine)
 
 
-def get_redis():
+def get_redis() -> redis.Redis:
     return redis.from_url(REDIS_URL)
 
 
-def publish_update(job_id: str, vendor_name: str, status: str, category: str = None, error: str = None):
+def publish_update(job_id: str, vendor_name: str, status: str, category: str = None, error: str = None) -> None:
     r = get_redis()
     msg = {
         "job_id": job_id,
@@ -37,8 +30,7 @@ def publish_update(job_id: str, vendor_name: str, status: str, category: str = N
     r.publish("job_updates", json.dumps(msg))
 
 
-def update_job_progress(db: Session, job_id: str, vendor_name: str, status: str):
-    """Update job progress using atomic JSON merge to avoid race conditions (H3 fix)."""
+def update_job_progress(db: Session, job_id: str, vendor_name: str, status: str) -> None:
     from sqlalchemy import text
     db.execute(
         text("UPDATE jobs SET progress = COALESCE(progress, '{}'::jsonb) || :new_val WHERE id = :job_id"),
@@ -48,8 +40,6 @@ def update_job_progress(db: Session, job_id: str, vendor_name: str, status: str)
 
 
 def sweep_orphan_running(db: Session, domain_id: str, vendor_id: int, action_type: str) -> None:
-    # Preflight: mark any prior 'running' row as failed so a SIGKILLed task can't
-    # leave a permanent spinner in the UI.
     from sqlalchemy import update as sql_update
     now = datetime.now(timezone.utc)
     db.execute(
@@ -73,8 +63,7 @@ def save_check_result(
     db: Session, domain_id: str, vendor_id: int, action_type: str,
     status: str, category: str = None, reputation: str = None,
     error_message: str = None, raw_response: dict = None
-):
-    # Upsert check_results (latest)
+) -> None:
     existing = db.execute(
         select(CheckResult).where(
             CheckResult.domain_id == UUID(domain_id),
@@ -112,7 +101,6 @@ def save_check_result(
         )
         db.add(result)
 
-    # Append to history
     history = CheckHistory(
         domain_id=UUID(domain_id),
         vendor_id=vendor_id,
@@ -133,25 +121,24 @@ def save_check_result(
 @celery_app.task(name="app.tasks.vendor_tasks.run_vendor_check", bind=True, max_retries=0)
 def run_vendor_check(self, job_id: str, domain_id: str, domain_name: str,
                      vendor_name: str, vendor_id: int, action_type: str,
-                     email: str = None, category: str = None):
-    import io, logging, re, time as _time
+                     email: str = None, category: str = None) -> dict:
+    import io, logging, re, time as task_time
 
     db = SessionLocal()
-    start_time = _time.time()
+    start_time = task_time.time()
 
-    # Capture classifier log output only (not Celery/chromedriver noise)
     log_capture = io.StringIO()
 
     class CleanFormatter(logging.Formatter):
         ANSI_RE = re.compile(r'\x1B\[[0-9;]*m')
-        def format(self, record):
+
+        def format(self, record: logging.LogRecord) -> str:
             return self.ANSI_RE.sub('', super().format(record))
 
     log_handler = logging.StreamHandler(log_capture)
     log_handler.setLevel(logging.DEBUG)
     log_handler.setFormatter(CleanFormatter("%(asctime)s [%(levelname)s] %(message)s", "%H:%M:%S"))
 
-    # Only attach to our own classifier loggers — NOT seleniumbase/selenium/urllib3/root
     classifier_loggers = []
     for name in [f"modules.{vendor_name}", "helpers.captcha_dual_solver"]:
         lg = logging.getLogger(name)
@@ -159,14 +146,11 @@ def run_vendor_check(self, job_id: str, domain_id: str, domain_name: str,
         classifier_loggers.append(lg)
 
     try:
-        # Preflight: clean up any orphan 'running' row left by a previously killed task
         sweep_orphan_running(db, domain_id, vendor_id, action_type)
 
         update_job_progress(db, job_id, vendor_name, "running")
         publish_update(job_id, vendor_name, "running")
 
-        # Mark the check_result as 'running' in DB so frontend shows loading
-        # even after page refresh/navigation
         save_check_result(
             db, domain_id, vendor_id, action_type,
             status="running",
@@ -181,13 +165,11 @@ def run_vendor_check(self, job_id: str, domain_id: str, domain_name: str,
             category=category,
         )
 
-        elapsed = round(_time.time() - start_time, 1)
+        elapsed = round(task_time.time() - start_time, 1)
         logs = log_capture.getvalue()
         result["logs"] = logs
         result["duration_seconds"] = elapsed
 
-        # Respect the status returned by the bridge — a vendor may return
-        # "failed" when it hit an API key error, a DNS lookup failure, etc.
         final_status = "failed" if result.get("status") == "failed" else "success"
         save_check_result(
             db, domain_id, vendor_id, action_type,
@@ -202,7 +184,7 @@ def run_vendor_check(self, job_id: str, domain_id: str, domain_name: str,
         return {"vendor": vendor_name, "status": final_status, "duration": elapsed}
 
     except Exception as e:
-        elapsed = round(_time.time() - start_time, 1)
+        elapsed = round(task_time.time() - start_time, 1)
         logs = log_capture.getvalue()
         error_msg = f"{str(e)}\n{traceback.format_exc()}"
         save_check_result(
@@ -244,7 +226,7 @@ def finalize_orphan_rows(db: Session, job_id: str) -> None:
 
 
 @celery_app.task(name="app.tasks.vendor_tasks.finalize_job")
-def finalize_job(results, job_id: str) -> None:
+def finalize_job(results: list, job_id: str) -> None:
     db = SessionLocal()
     try:
         finalize_orphan_rows(db, job_id)
@@ -262,7 +244,6 @@ def finalize_job(results, job_id: str) -> None:
 
 @celery_app.task(name="app.tasks.vendor_tasks.finalize_job_error", bind=True)
 def finalize_job_error(self, *args, **kwargs) -> None:
-    # job_id is the last positional arg (bound via .s(job_id))
     job_id = kwargs.get("job_id") or (args[-1] if args else None)
     if not job_id:
         return
@@ -288,10 +269,9 @@ def finalize_job_error(self, *args, **kwargs) -> None:
 
 @celery_app.task(name="app.tasks.vendor_tasks.run_domain_job", bind=True, max_retries=0)
 def run_domain_job(self, job_id: str, domain_id: str, domain_name: str,
-                   action_type: str, vendor_filter: str = None):
+                   action_type: str, vendor_filter: str = None) -> None:
     db = SessionLocal()
     try:
-        # Get applicable vendors
         query = select(Vendor).where(Vendor.is_active == True)
 
         if action_type == "reputation":
@@ -306,12 +286,10 @@ def run_domain_job(self, job_id: str, domain_id: str, domain_name: str,
 
         vendors = db.execute(query).scalars().all()
 
-        # Get domain details for email/category
         domain = db.get(Domain, UUID(domain_id))
         email = domain.email_for_submit if domain else None
         desired_category = domain.desired_category if domain else None
 
-        # Fan out vendor checks with a chord callback to finalize the job
         from celery import chord
         tasks = []
         for v in vendors:
@@ -324,20 +302,16 @@ def run_domain_job(self, job_id: str, domain_id: str, domain_name: str,
             )
 
         if tasks:
-            # Wire both normal and error callbacks so the job always finalizes,
-            # even if a child task is SIGKILLed by the hard time limit.
             callback = finalize_job.s(job_id)
             callback.set(link_error=finalize_job_error.s(job_id))
             chord(tasks)(callback)
         else:
-            # No vendors — mark as completed immediately
             job = db.get(Job, UUID(job_id))
             if job:
                 job.status = "completed"
                 job.completed_at = datetime.now(timezone.utc)
                 db.commit()
 
-        # Update job status to running
         job = db.get(Job, UUID(job_id))
         if job and job.status != "completed":
             job.status = "running"

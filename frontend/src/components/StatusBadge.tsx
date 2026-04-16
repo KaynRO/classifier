@@ -40,9 +40,6 @@ interface Props {
 }
 
 export default function StatusBadge({ status, loading, onCancel }: Props) {
-  // Only `running` and an explicit `loading` prop trigger the spinner.
-  // `pending` (job queued but not started) also shows the spinner — but
-  // NEVER `suspicious` or any other terminal state.
   const isRunning = loading || status === 'running' || status === 'pending'
 
   if (isRunning) {

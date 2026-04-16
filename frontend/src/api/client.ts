@@ -27,14 +27,12 @@ api.interceptors.response.use(
 
 export default api
 
-// --- Auth ---
 export const authApi = {
   login: (data: { username: string; password: string }) => api.post('/auth/login', data),
   register: (data: { username: string; email: string; password: string }) => api.post('/auth/register', data),
   me: () => api.get('/auth/me'),
 }
 
-// --- Domains ---
 export const domainsApi = {
   list: (params?: Record<string, any>) => api.get('/domains', { params }),
   create: (data: any) => api.post('/domains', data),
@@ -46,30 +44,28 @@ export const domainsApi = {
   exportCsv: () => api.get('/domains/export/csv', { responseType: 'blob' }),
 }
 
-// --- Jobs ---
 export const jobsApi = {
   check: (data: { domain_id: string; vendor?: string }) => api.post('/jobs/check', data),
   reputation: (data: { domain_id: string; vendor?: string }) => api.post('/jobs/reputation', data),
   submit: (data: { domain_id: string; vendor?: string }) => api.post('/jobs/submit', data),
   bulkCheck: (vendor?: string) => api.post('/jobs/bulk-check', null, { params: { vendor } }),
+  bulkReputation: (vendor?: string) => api.post('/jobs/bulk-reputation', null, { params: { vendor } }),
+  bulkSubmit: (vendor?: string) => api.post('/jobs/bulk-submit', null, { params: { vendor } }),
   get: (id: string) => api.get(`/jobs/${id}`),
   list: (params?: Record<string, any>) => api.get('/jobs', { params }),
   cancel: (id: string) => api.post(`/jobs/${id}/cancel`),
   cancelVendor: (domain_id: string, vendor: string) => api.post('/jobs/cancel-vendor', null, { params: { domain_id, vendor } }),
 }
 
-// --- Vendors ---
 export const vendorsApi = {
   list: () => api.get('/vendors'),
 }
 
-// --- Dashboard ---
 export const dashboardApi = {
   summary: () => api.get('/dashboard/summary'),
   matrix: (params?: Record<string, any>) => api.get('/dashboard/matrix', { params }),
 }
 
-// --- Settings ---
 export const settingsApi = {
   getCredentials: () => api.get('/settings/credentials'),
   updateCredentials: (data: Record<string, string>) => api.put('/settings/credentials', data),

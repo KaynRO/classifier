@@ -172,7 +172,6 @@ export default function SettingsPage() {
         <p className="text-muted-foreground mt-1">Configure dashboard preferences and API credentials</p>
       </div>
 
-      {/* Appearance */}
       <div className="rounded-lg border border-border bg-card p-6">
         <h3 className="font-semibold mb-4">Appearance</h3>
         <div className="flex items-center justify-between">
@@ -190,7 +189,6 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* Profile */}
       <div className="rounded-lg border border-border bg-card p-6">
         <h3 className="font-semibold mb-4 flex items-center gap-2"><User size={18} /> Profile</h3>
         <div className="grid grid-cols-2 gap-4 text-sm">
@@ -209,7 +207,6 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* API Credentials */}
       <div className="rounded-lg border border-border bg-card p-6">
         <div className="flex items-center justify-between mb-2">
           <h3 className="font-semibold flex items-center gap-2"><Key size={18} /> API Credentials</h3>
@@ -246,7 +243,6 @@ export default function SettingsPage() {
         )}
       </div>
 
-      {/* Vendor Registry */}
       <div className="rounded-lg border border-border bg-card p-6">
         <h3 className="font-semibold mb-4 flex items-center gap-2"><Shield size={18} /> Vendor Registry</h3>
         <div className="space-y-2">

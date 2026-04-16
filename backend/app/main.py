@@ -20,7 +20,7 @@ logging.basicConfig(
 logger = logging.getLogger("classifier")
 
 
-async def restore_check_result(db, cr: CheckResult) -> None:
+async def restore_check_result(db: object, cr: CheckResult) -> None:
     prior = await db.execute(
         select(CheckHistory)
         .where(
@@ -46,8 +46,6 @@ async def restore_check_result(db, cr: CheckResult) -> None:
 
 
 async def cleanup_stale_jobs() -> None:
-    # On startup cancel any jobs/check_results stuck in running/pending state
-    # from a previous worker crash or docker compose down
     async with async_session() as db:
         now = datetime.now(timezone.utc)
 
@@ -58,7 +56,7 @@ async def cleanup_stale_jobs() -> None:
             job.completed_at = now
             count += 1
         if count:
-            logger.info("Startup cleanup: cancelled %d stale job(s)", count)
+            logger.info(f"Startup cleanup: cancelled {count} stale job(s)")
 
         stale_crs = await db.execute(select(CheckResult).where(CheckResult.status.in_(["running", "pending"])))
         cr_count = 0
@@ -66,7 +64,7 @@ async def cleanup_stale_jobs() -> None:
             await restore_check_result(db, cr)
             cr_count += 1
         if cr_count:
-            logger.info("Startup cleanup: restored %d stale check_result row(s)", cr_count)
+            logger.info(f"Startup cleanup: restored {cr_count} stale check_result row(s)")
 
         await db.commit()
 

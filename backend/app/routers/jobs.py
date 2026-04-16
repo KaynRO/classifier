@@ -12,11 +12,10 @@ from app.tasks.celery_app import celery_app
 router = APIRouter(prefix="/api/v1/jobs", tags=["jobs"])
 
 
-async def _create_job(
+async def create_job(
     db: AsyncSession, domain_id: UUID, action_type: str,
     vendor_filter: str | None, user_id: UUID
 ) -> Job:
-    # Verify domain exists
     result = await db.execute(select(Domain).where(Domain.id == domain_id))
     domain = result.scalar_one_or_none()
     if not domain:
@@ -33,7 +32,6 @@ async def _create_job(
     await db.commit()
     await db.refresh(job)
 
-    # Dispatch to Celery
     task = celery_app.send_task(
         "app.tasks.vendor_tasks.run_domain_job",
         args=[str(job.id), str(domain_id), domain.domain, action_type, vendor_filter],
@@ -52,8 +50,8 @@ async def create_check_job(
     data: JobCreate,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
-):
-    job = await _create_job(db, data.domain_id, "check", data.vendor, user.id)
+) -> JobResponse:
+    job = await create_job(db, data.domain_id, "check", data.vendor, user.id)
     return JobResponse.model_validate(job)
 
 
@@ -62,8 +60,8 @@ async def create_reputation_job(
     data: JobCreate,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
-):
-    job = await _create_job(db, data.domain_id, "reputation", data.vendor, user.id)
+) -> JobResponse:
+    job = await create_job(db, data.domain_id, "reputation", data.vendor, user.id)
     return JobResponse.model_validate(job)
 
 
@@ -72,8 +70,8 @@ async def create_submit_job(
     data: JobCreate,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_admin),
-):
-    job = await _create_job(db, data.domain_id, "submit", data.vendor, user.id)
+) -> JobResponse:
+    job = await create_job(db, data.domain_id, "submit", data.vendor, user.id)
     return JobResponse.model_validate(job)
 
 
@@ -82,7 +80,7 @@ async def bulk_check(
     vendor: str | None = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_admin),
-):
+) -> list[JobResponse]:
     result = await db.execute(select(Domain).where(Domain.is_active == True))
     domains = result.scalars().all()
     if not domains:
@@ -90,13 +88,49 @@ async def bulk_check(
 
     jobs = []
     for domain in domains:
-        job = await _create_job(db, domain.id, "check", vendor, user.id)
+        job = await create_job(db, domain.id, "check", vendor, user.id)
+        jobs.append(JobResponse.model_validate(job))
+    return jobs
+
+
+@router.post("/bulk-reputation", response_model=list[JobResponse], status_code=201)
+async def bulk_reputation(
+    vendor: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+) -> list[JobResponse]:
+    result = await db.execute(select(Domain).where(Domain.is_active == True))
+    domains = result.scalars().all()
+    if not domains:
+        raise HTTPException(status_code=404, detail="No active domains found")
+
+    jobs = []
+    for domain in domains:
+        job = await create_job(db, domain.id, "reputation", vendor, user.id)
+        jobs.append(JobResponse.model_validate(job))
+    return jobs
+
+
+@router.post("/bulk-submit", response_model=list[JobResponse], status_code=201)
+async def bulk_submit(
+    vendor: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+) -> list[JobResponse]:
+    result = await db.execute(select(Domain).where(Domain.is_active == True))
+    domains = result.scalars().all()
+    if not domains:
+        raise HTTPException(status_code=404, detail="No active domains found")
+
+    jobs = []
+    for domain in domains:
+        job = await create_job(db, domain.id, "submit", vendor, user.id)
         jobs.append(JobResponse.model_validate(job))
     return jobs
 
 
 @router.get("/{job_id}", response_model=JobResponse)
-async def get_job(job_id: UUID, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+async def get_job(job_id: UUID, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)) -> JobResponse:
     result = await db.execute(select(Job).where(Job.id == job_id))
     job = result.scalar_one_or_none()
     if not job:
@@ -105,8 +139,6 @@ async def get_job(job_id: UUID, db: AsyncSession = Depends(get_db), user: User =
 
 
 async def restore_previous_state(db: AsyncSession, cr: CheckResult) -> None:
-    # Restore last known non-running/cancelled state from check_history; if none
-    # exists, delete the row so the UI shows "never checked".
     prior = await db.execute(
         select(CheckHistory)
         .where(
@@ -136,20 +168,18 @@ async def cancel_job(
     job_id: UUID,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
-):
+) -> JobResponse:
     result = await db.execute(select(Job).where(Job.id == job_id))
     job = result.scalar_one_or_none()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    # Revoke the Celery task
     if job.celery_task_id:
         try:
             celery_app.control.revoke(job.celery_task_id, terminate=True, signal="SIGTERM")
         except Exception:
             pass
 
-    # Restore each running check_result to its previous known state (from history)
     running_cr = await db.execute(
         select(CheckResult).where(
             CheckResult.domain_id == job.domain_id,
@@ -172,13 +202,12 @@ async def cancel_vendor_job(
     vendor: str = Query(...),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
-):
+) -> dict:
     vendor_result = await db.execute(select(Vendor).where(Vendor.name == vendor))
     v = vendor_result.scalar_one_or_none()
     if not v:
         raise HTTPException(status_code=404, detail=f"Vendor '{vendor}' not found")
 
-    # Find any running/pending check_result rows for this vendor (check + submit + reputation)
     cr_result = await db.execute(
         select(CheckResult).where(
             CheckResult.domain_id == domain_id,
@@ -190,7 +219,6 @@ async def cancel_vendor_job(
     if not crs:
         return {"detail": "No running task for this vendor"}
 
-    # Find the parent job(s) and revoke the Celery task
     jobs_result = await db.execute(
         select(Job).where(
             Job.domain_id == domain_id,
@@ -208,7 +236,6 @@ async def cancel_vendor_job(
             j.status = "cancelled"
             j.completed_at = datetime.now(timezone.utc)
 
-    # Restore each running check_result to its previous known state
     for cr in crs:
         await restore_previous_state(db, cr)
 
@@ -224,7 +251,7 @@ async def list_jobs(
     domain_id: UUID = Query(None),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
-):
+) -> PaginatedResponse:
     query = select(Job)
     if status:
         query = query.where(Job.status == status)

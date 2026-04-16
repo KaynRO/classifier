@@ -5,7 +5,6 @@ import { useWebSocket } from '@/context/WebSocketContext'
 import StatusBadge from '@/components/StatusBadge'
 import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react'
 
-// Convert ANSI escape codes to styled HTML spans
 function AnsiLog({ text }: { text: string }) {
   if (!text) return <span className="text-muted-foreground/40">No logs captured for this vendor.</span>
 
@@ -48,14 +47,11 @@ function AnsiLog({ text }: { text: string }) {
   )
 }
 
-// Strip ANSI escape codes for comparison purposes
 function stripAnsi(text: string): string {
   // eslint-disable-next-line no-control-regex
   return text.replace(/\x1B\[[0-9;]*m/g, '')
 }
 
-// Strip timestamp prefix and log level for dedup comparison
-// Matches patterns like "2024-01-01 12:00:00 - WARNING - " or "2024-01-01 12:00:00,123 - module - WARNING - "
 function stripPrefixes(line: string): string {
   return line
     .replace(/^\d{4}-\d{2}-\d{2}[\sT]\d{2}:\d{2}:\d{2}[,.\d]*\s*-\s*/, '')
@@ -83,21 +79,17 @@ function filterLogs(rawLogs: string): string {
   for (const line of lines) {
     const plain = stripAnsi(line).trim()
 
-    // Skip empty lines or lines that are just a timestamp with dashes
     if (!plain || /^\d{4}-\d{2}-\d{2}[\sT]\d{2}:\d{2}:\d{2}[,.\d]*\s*-\s*-?\s*$/.test(plain)) {
       continue
     }
-    // Also skip lines that are only dashes/whitespace after stripping
     if (/^[\s\-]+$/.test(plain)) {
       continue
     }
 
-    // Skip noise lines
     if (NOISE_PATTERNS.some(p => p.test(plain))) {
       continue
     }
 
-    // Deduplicate consecutive lines with same message content
     const key = stripPrefixes(plain)
     if (key && key === prevKey) {
       continue
@@ -152,6 +144,7 @@ export default function JobsPage() {
           <thead>
             <tr className="border-b border-border text-[11px] uppercase tracking-wider text-muted-foreground bg-[hsl(var(--table-header,var(--secondary)))]">
               <th className="px-4 py-2.5 text-left font-medium w-8"></th>
+              <th className="px-4 py-2.5 text-left font-medium">Job ID</th>
               <th className="px-4 py-2.5 text-left font-medium">Domain</th>
               <th className="px-4 py-2.5 text-left font-medium">Action</th>
               <th className="px-4 py-2.5 text-left font-medium">Vendor</th>
@@ -186,12 +179,12 @@ export default function JobsPage() {
               )
             })}
             {isLoading && (
-              <tr><td colSpan={7} className="px-4 py-12 text-center text-muted-foreground">
+              <tr><td colSpan={8} className="px-4 py-12 text-center text-muted-foreground">
                 <Loader2 size={16} className="animate-spin inline mr-2" />Loading...
               </td></tr>
             )}
             {!isLoading && (!data?.items || data.items.length === 0) && (
-              <tr><td colSpan={7} className="px-4 py-12 text-center text-muted-foreground">
+              <tr><td colSpan={8} className="px-4 py-12 text-center text-muted-foreground">
                 No jobs yet. Trigger a check from the Domains page.
               </td></tr>
             )}
@@ -219,7 +212,6 @@ function JobRow({ job, displayStatus, domainName, total, done, allDone, entries,
 }) {
   const [selectedVendor, setSelectedVendor] = useState<string | null>(null)
 
-  // Fetch domain results to get logs when expanded
   const { data: vendorResults } = useQuery({
     queryKey: ['domain-results', job.domain_id],
     queryFn: () => domainsApi.results(job.domain_id).then(r => r.data),
@@ -236,10 +228,7 @@ function JobRow({ job, displayStatus, domainName, total, done, allDone, entries,
   const vendorLookup: Record<string, any> = {}
   vendors?.forEach((v: any) => { vendorLookup[v.name] = v })
 
-  // Build logs lookup: vendor_name -> logs
-  // Filter by the current job's action_type so that a 'check' job doesn't
-  // accidentally show logs from a later 'submit' row (they share the same
-  // vendor_id in check_results but different action_type).
+  // Filter by action_type to avoid showing logs from a different action (e.g. submit vs check)
   const logsMap: Record<string, { logs: string; duration: number; status: string; category?: string; error?: string }> = {}
   vendorResults
     ?.filter((r: any) => r.action_type === job.action_type)
@@ -264,6 +253,9 @@ function JobRow({ job, displayStatus, domainName, total, done, allDone, entries,
         onClick={onToggle}>
         <td className="px-4 py-2.5 text-muted-foreground">
           {entries.length > 0 && (expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />)}
+        </td>
+        <td className="px-4 py-2.5">
+          <span className="font-mono text-[10px] text-muted-foreground/70">{job.id.slice(0, 8)}</span>
         </td>
         <td className="px-4 py-2.5">
           <span className="font-medium text-primary/90 dark:text-[hsl(265,50%,72%)]">{domainName}</span>
@@ -294,9 +286,8 @@ function JobRow({ job, displayStatus, domainName, total, done, allDone, entries,
 
       {expanded && entries.length > 0 && (
         <tr>
-          <td colSpan={7} className="px-0 py-0">
+          <td colSpan={8} className="px-0 py-0">
             <div className="bg-[hsl(var(--table-header,var(--secondary)))] border-t border-border">
-              {/* Vendor tabs */}
               <div className="flex flex-wrap gap-1 px-4 pt-3 pb-2 border-b border-border">
                 {entries.map(([vendor, status]: any) => (
                   <button
@@ -317,7 +308,6 @@ function JobRow({ job, displayStatus, domainName, total, done, allDone, entries,
                 ))}
               </div>
 
-              {/* Log output */}
               {selectedVendor && logsMap[selectedVendor] && (
                 <div className="px-4 py-3">
                   {logsMap[selectedVendor].category && (
