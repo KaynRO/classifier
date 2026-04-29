@@ -686,36 +686,43 @@ function CategorizationRow({ domain, categoryVendors, bulkPending, onDelete }: {
                 ) : (
                   <StatusBadge status={r?.status} />
                 )}
-                {r?.completed_at && !isCheckBusy && !isSubmitBusy && (
-                  <span className="text-[9px] text-muted-foreground/50">{timeAgo(r.completed_at)}</span>
-                )}
-                <div className="flex flex-wrap justify-center items-center gap-1 mt-0.5">
-                  <button
-                    onClick={() => checkVendorMutation.mutate(v.name)}
-                    disabled={isCheckBusy}
-                    className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all duration-200 ${
-                      isCheckBusy
-                        ? 'bg-muted/40 text-muted-foreground/30 cursor-not-allowed'
-                        : 'bg-secondary hover:bg-accent text-secondary-foreground'
-                    }`}
-                  >
-                    {isCheckBusy ? <Loader2 size={9} className="animate-spin" /> : 'Check'}
-                  </button>
-                  {v.supports_submit && (
+                <div className="flex flex-wrap justify-center items-end gap-2 mt-0.5">
+                  <div className="flex flex-col items-center gap-0.5">
+                    <span className="text-[9px] text-muted-foreground/60 leading-none h-[10px]" title={r?.completed_at ? `Last check: ${new Date(r.completed_at).toLocaleString()}` : undefined}>
+                      {r?.completed_at ? `Checked ${timeAgo(r.completed_at)}` : '—'}
+                    </span>
                     <button
-                      onClick={() => submitVendorMutation.mutate(v.name)}
-                      disabled={isSubmitBusy || isCheckBusy || !domain.desired_category}
-                      title={!domain.desired_category ? 'Set desired category first' : `Submit ${domain.desired_category} to ${v.display_name}`}
+                      onClick={() => checkVendorMutation.mutate(v.name)}
+                      disabled={isCheckBusy}
                       className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all duration-200 ${
-                        isSubmitBusy || isCheckBusy
-                          ? 'bg-primary/10 text-primary/30 cursor-not-allowed'
-                          : !domain.desired_category
-                            ? 'bg-muted/30 text-muted-foreground/30 cursor-not-allowed'
-                            : 'bg-primary/15 text-primary hover:bg-primary/25'
+                        isCheckBusy
+                          ? 'bg-muted/40 text-muted-foreground/30 cursor-not-allowed'
+                          : 'bg-secondary hover:bg-accent text-secondary-foreground'
                       }`}
                     >
-                      {isSubmitBusy ? <Loader2 size={9} className="animate-spin" /> : 'Submit'}
+                      {isCheckBusy ? <Loader2 size={9} className="animate-spin" /> : 'Check'}
                     </button>
+                  </div>
+                  {v.supports_submit && (
+                    <div className="flex flex-col items-center gap-0.5">
+                      <span className="text-[9px] text-muted-foreground/60 leading-none h-[10px]" title={sr?.completed_at ? `Last submit: ${new Date(sr.completed_at).toLocaleString()}` : undefined}>
+                        {sr?.completed_at ? `Submitted ${timeAgo(sr.completed_at)}` : '—'}
+                      </span>
+                      <button
+                        onClick={() => submitVendorMutation.mutate(v.name)}
+                        disabled={isSubmitBusy || isCheckBusy || !domain.desired_category}
+                        title={!domain.desired_category ? 'Set desired category first' : `Submit ${domain.desired_category} to ${v.display_name}`}
+                        className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all duration-200 ${
+                          isSubmitBusy || isCheckBusy
+                            ? 'bg-primary/10 text-primary/30 cursor-not-allowed'
+                            : !domain.desired_category
+                              ? 'bg-muted/30 text-muted-foreground/30 cursor-not-allowed'
+                              : 'bg-primary/15 text-primary hover:bg-primary/25'
+                        }`}
+                      >
+                        {isSubmitBusy ? <Loader2 size={9} className="animate-spin" /> : 'Submit'}
+                      </button>
+                    </div>
                   )}
                 </div>
                 {(manualCheckUrl || manualSubmitUrl) && (

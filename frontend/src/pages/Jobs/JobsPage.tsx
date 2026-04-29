@@ -308,7 +308,7 @@ function JobRow({ job, displayStatus, domainName, total, done, allDone, entries,
                     <div className="text-xs text-red-400 mb-2 max-h-20 overflow-y-auto font-mono whitespace-pre-wrap">{logsMap[selectedVendor].error}</div>
                   )}
                   <div className="bg-[hsl(260,22%,6%)] rounded-md border border-border p-3 overflow-y-auto resize-y" style={{ minHeight: '6rem', height: '20rem', maxHeight: '80vh' }}>
-                    <pre className="text-[11px] font-mono text-muted-foreground whitespace-pre-wrap leading-relaxed">
+                    <pre className="text-[11px] font-mono text-zinc-100 whitespace-pre-wrap leading-relaxed">
                       <AnsiLog text={filterLogs(logsMap[selectedVendor].logs)} />
                     </pre>
                   </div>

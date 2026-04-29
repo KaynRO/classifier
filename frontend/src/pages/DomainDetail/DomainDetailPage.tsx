@@ -97,9 +97,12 @@ export default function DomainDetailPage() {
   const categories = CATEGORIES
 
   const resultMap: Record<string, any> = {}
+  const submitResultMap: Record<string, any> = {}
   results?.forEach((r: any) => {
     const vendorName = vendors?.find((v: any) => v.id === r.vendor_id)?.name
-    if (vendorName) resultMap[vendorName] = r
+    if (!vendorName) return
+    if (r.action_type === 'submit') submitResultMap[vendorName] = r
+    else resultMap[vendorName] = r
   })
 
   const categoryVendors = vendors?.filter((v: any) => v.vendor_type === 'category' && !HIDDEN_VENDORS.has(v.name)) || []
@@ -181,7 +184,9 @@ export default function DomainDetailPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {categoryVendors.map((vendor: any) => {
             const r = resultMap[vendor.name]
+            const sr = submitResultMap[vendor.name]
             const busy = r?.status === 'running' || r?.status === 'pending' || pendingVendors.has(vendor.name)
+            const submitBusy = sr?.status === 'running' || sr?.status === 'pending'
             const showStatusBadge = busy || (r?.status && r.status !== 'success')
             return (
               <div key={vendor.id} className="rounded-lg border border-border bg-card p-4">
@@ -194,33 +199,37 @@ export default function DomainDetailPage() {
                     <span className="text-muted-foreground">Category</span>
                     <CategoryBadge category={r?.category} desired={domain?.desired_category} />
                   </div>
-                  {r?.completed_at && !busy && (
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Last Check</span>
-                      <span className="text-xs">{new Date(r.completed_at).toLocaleString()}</span>
-                    </div>
-                  )}
                 </div>
-                <div className="flex gap-1 mt-3">
-                  <button
-                    onClick={() => checkMutation.mutate(vendor.name)}
-                    disabled={busy}
-                    className={`flex-1 py-1.5 rounded text-xs font-medium text-center transition-colors ${
-                      busy ? 'bg-muted/40 text-muted-foreground/30 cursor-not-allowed' : 'border border-border hover:bg-accent'
-                    }`}
-                  >
-                    {busy ? <Loader2 size={10} className="animate-spin inline" /> : 'Re-check'}
-                  </button>
-                  {vendor.supports_submit && domain?.desired_category && (
+                <div className="flex gap-1 mt-3 items-end">
+                  <div className="flex-1 flex flex-col items-stretch gap-1">
+                    <span className="text-[10px] text-muted-foreground/70 text-center" title={r?.completed_at ? new Date(r.completed_at).toLocaleString() : undefined}>
+                      {r?.completed_at ? `Last check: ${new Date(r.completed_at).toLocaleString()}` : 'Last check: —'}
+                    </span>
                     <button
-                      onClick={() => submitMutation.mutate(vendor.name)}
+                      onClick={() => checkMutation.mutate(vendor.name)}
                       disabled={busy}
-                      className={`flex-1 py-1.5 rounded text-xs font-medium text-center transition-colors ${
-                        busy ? 'bg-primary/10 text-primary/30 cursor-not-allowed' : 'bg-primary text-primary-foreground hover:opacity-90'
+                      className={`py-1.5 rounded text-xs font-medium text-center transition-colors ${
+                        busy ? 'bg-muted/40 text-muted-foreground/30 cursor-not-allowed' : 'border border-border hover:bg-accent'
                       }`}
                     >
-                      Submit
+                      {busy ? <Loader2 size={10} className="animate-spin inline" /> : 'Re-check'}
                     </button>
+                  </div>
+                  {vendor.supports_submit && domain?.desired_category && (
+                    <div className="flex-1 flex flex-col items-stretch gap-1">
+                      <span className="text-[10px] text-muted-foreground/70 text-center" title={sr?.completed_at ? new Date(sr.completed_at).toLocaleString() : undefined}>
+                        {sr?.completed_at ? `Last submit: ${new Date(sr.completed_at).toLocaleString()}` : 'Last submit: —'}
+                      </span>
+                      <button
+                        onClick={() => submitMutation.mutate(vendor.name)}
+                        disabled={busy || submitBusy}
+                        className={`py-1.5 rounded text-xs font-medium text-center transition-colors ${
+                          busy || submitBusy ? 'bg-primary/10 text-primary/30 cursor-not-allowed' : 'bg-primary text-primary-foreground hover:opacity-90'
+                        }`}
+                      >
+                        {submitBusy ? <Loader2 size={10} className="animate-spin inline" /> : 'Submit'}
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>
