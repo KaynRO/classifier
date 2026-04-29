@@ -87,12 +87,12 @@ class Brightcloud:
         return cat_val
 
 
-    def submit(self, driver, url: str, email: str, category: str) -> None:
+    def submit(self, driver, url: str, email: str, category: str, custom_text: Optional[str] = None) -> None:
         for protocol_url in prepare_urls_for_submission(url):
-            self.submit_single_url(driver, protocol_url, email, category)
+            self.submit_single_url(driver, protocol_url, email, category, custom_text=custom_text)
 
 
-    def submit_single_url(self, driver, url: str, email: str, category: str) -> None:
+    def submit_single_url(self, driver, url: str, email: str, category: str, custom_text: Optional[str] = None) -> None:
         try:
             cat_val = self.check(driver, url)
 
@@ -127,7 +127,7 @@ class Brightcloud:
             wait_and_input_on_element(driver, self.req_email_input, email)
 
             # Fill comments
-            wait_and_input_on_element(driver, self.req_comments_input, construct_reason_for_review_comment(url, vendor_category, simple_message=True))
+            wait_and_input_on_element(driver, self.req_comments_input, construct_reason_for_review_comment(url, vendor_category, simple_message=True, custom_text=custom_text))
 
             # Solve the change request reCAPTCHA
             solve_google_recaptcha(driver)

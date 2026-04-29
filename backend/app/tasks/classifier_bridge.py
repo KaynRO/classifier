@@ -103,6 +103,7 @@ def run_vendor_operation(
     action: str,
     email: str = None,
     category: str = None,
+    custom_text: str = None,
 ) -> dict:
     setup_credentials()
     os.makedirs("logs", exist_ok=True)
@@ -152,7 +153,7 @@ def run_vendor_operation(
         try:
             url = domain if domain.startswith(("http://", "https://")) else f"https://{domain}"
             if action == "submit" and hasattr(vendor, "submit"):
-                vendor.submit(None, domain, email or "", category or "")
+                vendor.submit(None, domain, email or "", category or "", custom_text=custom_text)
                 result["status"] = "submitted"
             else:
                 check_result = vendor.check(None, url, return_reputation_only=(action == "reputation"))
@@ -185,7 +186,7 @@ def run_vendor_operation(
                 url = domain if domain.startswith(("http://", "https://")) else f"https://{domain}"
 
                 if action == "submit" and hasattr(vendor, "submit"):
-                    vendor.submit(driver, domain, email or "", category or "")
+                    vendor.submit(driver, domain, email or "", category or "", custom_text=custom_text)
                     result["status"] = "submitted"
                 else:
                     check_result = vendor.check(driver, url, return_reputation_only=(action == "reputation"))

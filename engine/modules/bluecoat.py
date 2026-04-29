@@ -128,12 +128,12 @@ class BlueCoat:
         return cat_val
 
 
-    def submit(self, driver, url: str, email: str, category: str) -> None:
+    def submit(self, driver, url: str, email: str, category: str, custom_text: Optional[str] = None) -> None:
         for protocol_url in prepare_urls_for_submission(url):
-            self.submit_single_url(driver, protocol_url, email, category)
+            self.submit_single_url(driver, protocol_url, email, category, custom_text=custom_text)
 
 
-    def submit_single_url(self, driver, url: str, email: str, category: str) -> None:
+    def submit_single_url(self, driver, url: str, email: str, category: str, custom_text: Optional[str] = None) -> None:
         try:
             cat_val = self.check(driver, url)
 
@@ -164,7 +164,7 @@ class BlueCoat:
 
             # Fill email and comments
             wait_and_input_on_element(driver, self.sub_email, email)
-            wait_and_input_on_element(driver, self.sub_comment, construct_reason_for_review_comment(url, category))
+            wait_and_input_on_element(driver, self.sub_comment, construct_reason_for_review_comment(url, category, custom_text=custom_text))
 
             # Submit
             wait_and_click_on_element(driver, self.sub_btn)

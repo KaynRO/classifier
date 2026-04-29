@@ -178,7 +178,7 @@ class Intelixsophos:
                         return val
         return None
 
-    def submit(self, driver, url: str, email: str, category: str) -> None:
+    def submit(self, driver, url: str, email: str, category: str, custom_text: Optional[str] = None) -> None:
         # Posts to https://support.sophos.com/support/s/filesubmission (Salesforce Lightning form).
         self.logger.info(f" Targeting intelixsophos (submit) ".center(60, "="))
 
@@ -189,7 +189,10 @@ class Intelixsophos:
 
         submit_url = "https://support.sophos.com/support/s/filesubmission?language=en_US"
         clean_url = url if url.startswith(("http://", "https://")) else f"https://{url}"
-        reason = f"Please recategorize {clean_url} as {category}. " + construct_reason_for_review_comment(clean_url, category, simple_message=True)
+        if custom_text and custom_text.strip():
+            reason = custom_text.strip()
+        else:
+            reason = f"Please recategorize {clean_url} as {category}. " + construct_reason_for_review_comment(clean_url, category, simple_message=True)
 
         try:
             with sync_playwright() as p:

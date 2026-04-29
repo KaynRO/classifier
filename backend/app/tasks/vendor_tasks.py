@@ -134,7 +134,8 @@ def save_check_result(
 @celery_app.task(name="app.tasks.vendor_tasks.run_vendor_check", bind=True, max_retries=0)
 def run_vendor_check(self, job_id: str, domain_id: str, domain_name: str,
                      vendor_name: str, vendor_id: int, action_type: str,
-                     email: str = None, category: str = None) -> dict:
+                     email: str = None, category: str = None,
+                     custom_text: str = None) -> dict:
     import io, logging, re, time as task_time
 
     db = SessionLocal()
@@ -176,6 +177,7 @@ def run_vendor_check(self, job_id: str, domain_id: str, domain_name: str,
             action=action_type,
             email=email,
             category=category,
+            custom_text=custom_text,
         )
 
         elapsed = round(task_time.time() - start_time, 1)
@@ -302,6 +304,7 @@ def run_domain_job(self, job_id: str, domain_id: str, domain_name: str,
         domain = db.get(Domain, UUID(domain_id))
         email = domain.email_for_submit if domain else None
         desired_category = domain.desired_category if domain else None
+        custom_text = domain.custom_text if domain else None
 
         from celery import chord
         tasks = []
@@ -310,7 +313,7 @@ def run_domain_job(self, job_id: str, domain_id: str, domain_name: str,
                 run_vendor_check.s(
                     job_id, domain_id, domain_name,
                     v.name, v.id, action_type,
-                    email, desired_category,
+                    email, desired_category, custom_text,
                 )
             )
 

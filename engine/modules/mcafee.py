@@ -154,12 +154,12 @@ class McAfee:
         return reputation
 
 
-    def submit(self, driver, url: str, email: str, category: str) -> None:
+    def submit(self, driver, url: str, email: str, category: str, custom_text: Optional[str] = None) -> None:
         for protocol_url in prepare_urls_for_submission(url):
-            self.submit_single_url(driver, protocol_url, email, category)
+            self.submit_single_url(driver, protocol_url, email, category, custom_text=custom_text)
 
 
-    def submit_single_url(self, driver, url: str, email: str, category: str) -> None:
+    def submit_single_url(self, driver, url: str, email: str, category: str, custom_text: Optional[str] = None) -> None:
         try:
             self.logger.info(f" Targeting mcafee ".center(60, "="))
             self.logger.info("[*] Starting submission process on McAfee feedback page")
@@ -196,7 +196,7 @@ class McAfee:
             self.logger.info(f"[*] Selected category 1: {vendor_category}")
 
             # Fill optional comment
-            wait_and_input_on_element(driver, self.comment_input, construct_reason_for_review_comment(url, vendor_category, simple_message=True))
+            wait_and_input_on_element(driver, self.comment_input, construct_reason_for_review_comment(url, vendor_category, simple_message=True, custom_text=custom_text))
 
             # Click "Submit URL for Review"
             wait_and_click_on_element(driver, self.submit_review_btn)

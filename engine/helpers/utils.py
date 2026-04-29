@@ -342,12 +342,15 @@ def randomize_user_agent() -> str:
     return random.choice(browsers)
 
 
-def construct_reason_for_review_comment(target_url: str, category: str, simple_message: bool = False) -> str:
+def construct_reason_for_review_comment(target_url: str, category: str, simple_message: bool = False, custom_text: Optional[str] = None) -> str:
     # We build and operate web applications on behalf of our clients. After
     # launch, the domains frequently land in a generic "uncategorized" or
     # "newly registered" bucket for a few weeks, which blocks end-user access
     # through corporate web filters. These messages request the correct
     # category so legitimate business traffic isn't interrupted.
+    if custom_text and custom_text.strip():
+        return custom_text.strip()
+
     messages = [
         (
             f"Hello,\n\n"
