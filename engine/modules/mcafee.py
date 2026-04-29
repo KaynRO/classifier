@@ -129,21 +129,25 @@ class McAfee:
 
     def extract_reputation(self, body_text: str) -> str:
         reputation = "NOT FOUND"
+        # McAfee only emits one of these labels in the result table.
+        risk_pattern = re.compile(
+            r"\b(Minimal|Low|Medium|High|Unverified)\s+Risk\b",
+            re.IGNORECASE,
+        )
         try:
-            lines = body_text.split("\n")
-
-            for line in lines:
-                line_lower = line.lower().strip()
-                if "risk" in line_lower:
-                    parts = line.split("\t")
-                    for part in parts:
-                        part = part.strip()
-                        if part and part not in ["URL", "Status", "Categorization", "Trust", "-"]:
-                            if "risk" in part.lower():
-                                reputation = part
-                                break
-                    if reputation != "NOT FOUND":
-                        break
+            for line in body_text.split("\n"):
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                # Skip the help-text paragraph on the feedback page that mentions
+                # "risk" in prose — it's not a rating.
+                lowered = stripped.lower()
+                if "suggest changes" in lowered or "anonymous submissions" in lowered:
+                    continue
+                m = risk_pattern.search(stripped)
+                if m:
+                    reputation = f"{m.group(1).title()} Risk"
+                    break
         except Exception as e:
             self.logger.debug(f"[*] Could not extract reputation: {e}")
 

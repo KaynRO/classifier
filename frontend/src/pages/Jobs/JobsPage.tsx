@@ -6,7 +6,7 @@ import StatusBadge from '@/components/StatusBadge'
 import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react'
 
 function AnsiLog({ text }: { text: string }) {
-  if (!text) return <span className="text-muted-foreground/40">No logs captured for this vendor.</span>
+  if (!text) return <span className="text-white font-bold">No logs captured for this vendor.</span>
 
   const ansiColors: Record<string, string> = {
     '30': '#6b7280', '31': '#ef4444', '32': '#22c55e', '33': '#eab308',

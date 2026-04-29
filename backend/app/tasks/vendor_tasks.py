@@ -59,11 +59,24 @@ def sweep_orphan_running(db: Session, domain_id: str, vendor_id: int, action_typ
     db.commit()
 
 
+CATEGORY_MAX = 255
+REPUTATION_MAX = 255
+
+
+def _clip(value, limit: int):
+    if value is None:
+        return None
+    s = str(value)
+    return s if len(s) <= limit else s[: limit - 1] + "…"
+
+
 def save_check_result(
     db: Session, domain_id: str, vendor_id: int, action_type: str,
     status: str, category: str = None, reputation: str = None,
     error_message: str = None, raw_response: dict = None
 ) -> None:
+    category = _clip(category, CATEGORY_MAX)
+    reputation = _clip(reputation, REPUTATION_MAX)
     existing = db.execute(
         select(CheckResult).where(
             CheckResult.domain_id == UUID(domain_id),
