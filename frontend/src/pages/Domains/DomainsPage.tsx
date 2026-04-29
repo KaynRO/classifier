@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { domainsApi, jobsApi, vendorsApi } from '@/api/client'
 import StatusBadge from '@/components/StatusBadge'
 import CategoryBadge from '@/components/CategoryBadge'
-import { Plus, Search, Trash2, X, Loader2, PlayCircle, SendHorizonal, ExternalLink } from 'lucide-react'
+import { Plus, Search, Trash2, X, Loader2, PlayCircle, SendHorizonal, ExternalLink, ChevronUp, ChevronDown } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { CATEGORIES, HIDDEN_VENDORS, getManualUrl } from '@/lib/constants'
 import { Link } from 'react-router-dom'
@@ -44,14 +44,30 @@ function timeAgo(dateStr: string | null | undefined): string {
 const SAFETY_DEFAULT_W = (i: number) => (i === 0 ? 230 : 200)
 const CAT_DEFAULT_W    = (i: number) => (i === 0 ? 250 : 200)
 
-function useResizableColumns(count: number, defaultW: (i: number) => number) {
-  const [widths, setWidths] = useState<number[]>(() =>
-    Array.from({ length: count }, (_, i) => defaultW(i))
-  )
+function useResizableColumns(count: number, defaultW: (i: number) => number, storageKey?: string) {
+  const [widths, setWidths] = useState<number[]>(() => {
+    if (storageKey && typeof window !== 'undefined') {
+      try {
+        const raw = window.localStorage.getItem(storageKey)
+        if (raw) {
+          const parsed = JSON.parse(raw)
+          if (Array.isArray(parsed) && parsed.every(n => typeof n === 'number')) {
+            return Array.from({ length: count }, (_, i) => parsed[i] ?? defaultW(i))
+          }
+        }
+      } catch { /* ignore */ }
+    }
+    return Array.from({ length: count }, (_, i) => defaultW(i))
+  })
   const colRefs   = useRef<(HTMLTableColElement | null)[]>([])
   const liveW     = useRef<number[]>([])
 
   useEffect(() => { liveW.current = [...widths] }, [widths])
+
+  useEffect(() => {
+    if (!storageKey || typeof window === 'undefined') return
+    try { window.localStorage.setItem(storageKey, JSON.stringify(widths)) } catch { /* ignore */ }
+  }, [widths, storageKey])
 
   useEffect(() => {
     setWidths(prev => {
@@ -98,9 +114,9 @@ function ResizeHandle({ onMouseDown }: { onMouseDown: (e: React.MouseEvent) => v
     <div
       onMouseDown={onMouseDown}
       onClick={e => e.stopPropagation()}
-      className="absolute right-0 top-0 h-full w-[6px] cursor-col-resize z-20 group/rh flex items-center justify-center"
+      className="absolute right-0 top-0 h-full w-[8px] cursor-col-resize z-20 group/rh flex items-center justify-center"
     >
-      <div className="w-[2px] h-[55%] rounded-full bg-transparent group-hover/rh:bg-border transition-colors duration-150" />
+      <div className="w-[2px] h-[70%] rounded-full bg-border/70 group-hover/rh:bg-primary transition-colors duration-150" />
     </div>
   )
 }
@@ -155,9 +171,22 @@ export default function DomainsPage() {
   const reputationVendors = vendors?.filter((v: any) => v.vendor_type === 'reputation' && !HIDDEN_VENDORS.has(v.name)) || []
 
   const { widths: safetyW, colRefs: safetyColRefs, startResize: startSafetyResize } =
-    useResizableColumns(1 + reputationVendors.length, SAFETY_DEFAULT_W)
+    useResizableColumns(1 + reputationVendors.length, SAFETY_DEFAULT_W, 'domains:safetyColWidths')
   const { widths: catW, colRefs: catColRefs, startResize: startCatResize } =
-    useResizableColumns(1 + categoryVendors.length, CAT_DEFAULT_W)
+    useResizableColumns(1 + categoryVendors.length, CAT_DEFAULT_W, 'domains:catColWidths')
+
+  const [safetyCollapsed, setSafetyCollapsed] = useState<boolean>(() => {
+    try { return window.localStorage.getItem('domains:safetyCollapsed') === '1' } catch { return false }
+  })
+  const [catCollapsed, setCatCollapsed] = useState<boolean>(() => {
+    try { return window.localStorage.getItem('domains:catCollapsed') === '1' } catch { return false }
+  })
+  useEffect(() => {
+    try { window.localStorage.setItem('domains:safetyCollapsed', safetyCollapsed ? '1' : '0') } catch { /* ignore */ }
+  }, [safetyCollapsed])
+  useEffect(() => {
+    try { window.localStorage.setItem('domains:catCollapsed', catCollapsed ? '1' : '0') } catch { /* ignore */ }
+  }, [catCollapsed])
 
   return (
     <div className="space-y-6">
@@ -187,20 +216,31 @@ export default function DomainsPage() {
         />
       </div>
 
-      <section className="rounded-lg border border-border bg-card overflow-hidden">
+      <section className={`rounded-lg border border-border bg-card overflow-hidden${safetyCollapsed ? ' border-b-0' : ''}`}>
         <div className="px-5 py-3 border-b border-border bg-[hsl(var(--table-header,var(--secondary)))] flex items-center justify-between">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             Safety Status <span className="text-muted-foreground/50 font-normal normal-case">({reputationVendors.length} vendor{reputationVendors.length === 1 ? '' : 's'})</span>
           </h3>
-          <button
-            onClick={() => bulkReputationMutation.mutate()}
-            disabled={bulkReputationMutation.isPending}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-[11px] font-medium hover:bg-accent transition-colors disabled:opacity-50"
-          >
-            {bulkReputationMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <PlayCircle size={12} />}
-            Verify All Domains
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => bulkReputationMutation.mutate()}
+              disabled={bulkReputationMutation.isPending}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-[11px] font-medium hover:bg-accent transition-colors disabled:opacity-50"
+            >
+              {bulkReputationMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <PlayCircle size={12} />}
+              Verify All Domains
+            </button>
+            <button
+              onClick={() => setSafetyCollapsed(c => !c)}
+              title={safetyCollapsed ? 'Expand Safety Status table' : 'Minimize Safety Status table'}
+              aria-label={safetyCollapsed ? 'Expand Safety Status table' : 'Minimize Safety Status table'}
+              className="flex items-center justify-center w-7 h-7 rounded-md border border-border hover:bg-accent transition-colors"
+            >
+              {safetyCollapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+            </button>
+          </div>
         </div>
+        {!safetyCollapsed && (
         <div className="overflow-auto" style={{ maxHeight: '60vh' }}>
           <table className="text-sm" style={{ tableLayout: 'fixed', minWidth: `${safetyW.reduce((a, b) => a + b, 0)}px` }}>
             <colgroup>
@@ -217,7 +257,7 @@ export default function DomainsPage() {
                 {reputationVendors.map((v: any, i: number) => {
                   const vendorUrl = getManualUrl(v.name, 'check', '')?.replace(encodeURIComponent(''), '').replace(/[?&].*$/, '') || null
                   return (
-                    <th key={v.id} className="relative px-2 py-2.5 text-center font-medium border-l border-border/40 overflow-hidden">
+                    <th key={v.id} className="relative px-2 py-2.5 text-center font-medium border-l border-border overflow-hidden">
                       {vendorUrl ? (
                         <a href={vendorUrl} target="_blank" rel="noopener noreferrer" className="block truncate hover:text-primary transition-colors" title={`Open ${v.display_name}`}>
                           {v.display_name}
@@ -242,9 +282,10 @@ export default function DomainsPage() {
             </tbody>
           </table>
         </div>
+        )}
       </section>
 
-      <section className="rounded-lg border border-border bg-card overflow-hidden">
+      <section className={`rounded-lg border border-border bg-card overflow-hidden${catCollapsed ? ' border-b-0' : ''}`}>
         <div className="px-5 py-3 border-b border-border bg-[hsl(var(--table-header,var(--secondary)))] flex items-center justify-between">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             Web Proxy Categorization <span className="text-muted-foreground/50 font-normal normal-case">({categoryVendors.length} vendor{categoryVendors.length === 1 ? '' : 's'})</span>
@@ -266,8 +307,17 @@ export default function DomainsPage() {
               {bulkSubmitMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <SendHorizonal size={12} />}
               Submit All Domains
             </button>
+            <button
+              onClick={() => setCatCollapsed(c => !c)}
+              title={catCollapsed ? 'Expand Web Proxy Categorization table' : 'Minimize Web Proxy Categorization table'}
+              aria-label={catCollapsed ? 'Expand Web Proxy Categorization table' : 'Minimize Web Proxy Categorization table'}
+              className="flex items-center justify-center w-7 h-7 rounded-md border border-border hover:bg-accent transition-colors"
+            >
+              {catCollapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+            </button>
           </div>
         </div>
+        {!catCollapsed && (
         <div className="overflow-auto" style={{ maxHeight: '60vh' }}>
           <table className="text-sm" style={{ tableLayout: 'fixed', minWidth: `${catW.reduce((a, b) => a + b, 0)}px` }}>
             <colgroup>
@@ -295,6 +345,7 @@ export default function DomainsPage() {
             </tbody>
           </table>
         </div>
+        )}
       </section>
 
       {showAdd && <AddDomainModal onClose={() => setShowAdd(false)} />}
@@ -327,7 +378,7 @@ function VendorHeaders({ categoryVendors, widths, startResize }: {
       {categoryVendors.map((v: any, i: number) => {
         const vendorUrl = getManualUrl(v.name, 'check', '')?.replace(encodeURIComponent(''), '').replace(/[?&].*$/, '') || null
         return (
-          <th key={v.id} className="relative px-4 py-2.5 text-center font-medium overflow-hidden">
+          <th key={v.id} className="relative px-4 py-2.5 text-center font-medium border-l border-border overflow-hidden">
             {vendorUrl ? (
               <a href={vendorUrl} target="_blank" rel="noopener noreferrer" className="block truncate hover:text-primary transition-colors" title={`Open ${v.display_name}`}>
                 {v.display_name}
@@ -447,7 +498,7 @@ function SafetyRow({ domain, reputationVendors, bulkPending, onDelete }: { domai
         const detail = !busy && r?.status === 'success' && repString ? extractDetail(repString) : null
         const badgeStatus = deriveBadgeStatus(r)
         return (
-          <td key={v.id} className="px-2 py-3 align-top border-l border-border/40">
+          <td key={v.id} className="px-2 py-3 align-top border-l border-border">
             <div className="flex flex-col items-center gap-1.5">
               <StatusBadge
                 status={busy ? undefined : badgeStatus}
@@ -626,7 +677,7 @@ function CategorizationRow({ domain, categoryVendors, bulkPending, onDelete }: {
           const manualCheckUrl = checkFailed ? getManualUrl(v.name, 'check', domain.domain) : null
           const manualSubmitUrl = submitFailed && v.supports_submit ? getManualUrl(v.name, 'submit', domain.domain) : null
           return (
-            <td key={v.id} className="px-3 py-2 text-center">
+            <td key={v.id} className="px-3 py-2 text-center border-l border-border">
               <div className="flex flex-col items-center gap-1">
                 {isCheckBusy || isSubmitBusy ? (
                   <StatusBadge status="running" onCancel={() => cancelMutation.mutate(v.name)} />
