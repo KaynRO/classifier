@@ -44,20 +44,21 @@ function timeAgo(dateStr: string | null | undefined): string {
 const SAFETY_DEFAULT_W = (i: number) => (i === 0 ? 230 : 200)
 const CAT_DEFAULT_W    = (i: number) => (i === 0 ? 250 : 200)
 
+function readStoredWidths(storageKey?: string): number[] {
+  if (!storageKey || typeof window === 'undefined') return []
+  try {
+    const raw = window.localStorage.getItem(storageKey)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed) && parsed.every(n => typeof n === 'number')) return parsed
+  } catch { /* ignore */ }
+  return []
+}
+
 function useResizableColumns(count: number, defaultW: (i: number) => number, storageKey?: string) {
   const [widths, setWidths] = useState<number[]>(() => {
-    if (storageKey && typeof window !== 'undefined') {
-      try {
-        const raw = window.localStorage.getItem(storageKey)
-        if (raw) {
-          const parsed = JSON.parse(raw)
-          if (Array.isArray(parsed) && parsed.every(n => typeof n === 'number')) {
-            return Array.from({ length: count }, (_, i) => parsed[i] ?? defaultW(i))
-          }
-        }
-      } catch { /* ignore */ }
-    }
-    return Array.from({ length: count }, (_, i) => defaultW(i))
+    const stored = readStoredWidths(storageKey)
+    return Array.from({ length: count }, (_, i) => stored[i] ?? defaultW(i))
   })
   const colRefs   = useRef<(HTMLTableColElement | null)[]>([])
   const liveW     = useRef<number[]>([])
@@ -72,11 +73,12 @@ function useResizableColumns(count: number, defaultW: (i: number) => number, sto
   useEffect(() => {
     setWidths(prev => {
       if (prev.length === count) return prev
-      return Array.from({ length: count }, (_, i) => prev[i] ?? defaultW(i))
+      const stored = readStoredWidths(storageKey)
+      return Array.from({ length: count }, (_, i) => prev[i] ?? stored[i] ?? defaultW(i))
     })
   // defaultW is module-level constant — safe to omit from deps
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [count])
+  }, [count, storageKey])
 
   const startResize = useCallback((idx: number, e: React.MouseEvent) => {
     e.preventDefault()
@@ -686,33 +688,33 @@ function CategorizationRow({ domain, categoryVendors, bulkPending, onDelete }: {
                 ) : (
                   <StatusBadge status={r?.status} />
                 )}
-                <div className="flex flex-wrap justify-center items-end gap-2 mt-0.5">
-                  <div className="flex flex-col items-center gap-0.5">
-                    <span className="text-[9px] text-muted-foreground/60 leading-none h-[10px]" title={r?.completed_at ? `Last check: ${new Date(r.completed_at).toLocaleString()}` : undefined}>
-                      {r?.completed_at ? `Checked ${timeAgo(r.completed_at)}` : '—'}
+                <div className="flex justify-center items-end gap-2 mt-0.5">
+                  <div className="flex flex-col items-stretch gap-0.5 w-[72px]">
+                    <span className="text-[9px] text-muted-foreground/60 leading-none text-center" title={r?.completed_at ? `Last check: ${new Date(r.completed_at).toLocaleString()}` : 'No check yet'}>
+                      {r?.completed_at ? timeAgo(r.completed_at) : '—'}
                     </span>
                     <button
                       onClick={() => checkVendorMutation.mutate(v.name)}
                       disabled={isCheckBusy}
-                      className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all duration-200 ${
+                      className={`w-full px-2 py-1 rounded-md text-[11px] font-medium transition-all duration-200 ${
                         isCheckBusy
                           ? 'bg-muted/40 text-muted-foreground/30 cursor-not-allowed'
                           : 'bg-secondary hover:bg-accent text-secondary-foreground'
                       }`}
                     >
-                      {isCheckBusy ? <Loader2 size={9} className="animate-spin" /> : 'Check'}
+                      {isCheckBusy ? <Loader2 size={9} className="animate-spin mx-auto" /> : 'Check'}
                     </button>
                   </div>
                   {v.supports_submit && (
-                    <div className="flex flex-col items-center gap-0.5">
-                      <span className="text-[9px] text-muted-foreground/60 leading-none h-[10px]" title={sr?.completed_at ? `Last submit: ${new Date(sr.completed_at).toLocaleString()}` : undefined}>
-                        {sr?.completed_at ? `Submitted ${timeAgo(sr.completed_at)}` : '—'}
+                    <div className="flex flex-col items-stretch gap-0.5 w-[72px]">
+                      <span className="text-[9px] text-muted-foreground/60 leading-none text-center" title={sr?.completed_at ? `Last submit: ${new Date(sr.completed_at).toLocaleString()}` : 'No submit yet'}>
+                        {sr?.completed_at ? timeAgo(sr.completed_at) : '—'}
                       </span>
                       <button
                         onClick={() => submitVendorMutation.mutate(v.name)}
                         disabled={isSubmitBusy || isCheckBusy || !domain.desired_category}
                         title={!domain.desired_category ? 'Set desired category first' : `Submit ${domain.desired_category} to ${v.display_name}`}
-                        className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all duration-200 ${
+                        className={`w-full px-2 py-1 rounded-md text-[11px] font-medium transition-all duration-200 ${
                           isSubmitBusy || isCheckBusy
                             ? 'bg-primary/10 text-primary/30 cursor-not-allowed'
                             : !domain.desired_category
@@ -720,7 +722,7 @@ function CategorizationRow({ domain, categoryVendors, bulkPending, onDelete }: {
                               : 'bg-primary/15 text-primary hover:bg-primary/25'
                         }`}
                       >
-                        {isSubmitBusy ? <Loader2 size={9} className="animate-spin" /> : 'Submit'}
+                        {isSubmitBusy ? <Loader2 size={9} className="animate-spin mx-auto" /> : 'Submit'}
                       </button>
                     </div>
                   )}
