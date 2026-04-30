@@ -63,7 +63,7 @@ CATEGORY_MAX = 255
 REPUTATION_MAX = 255
 
 
-def _clip(value, limit: int):
+def clip(value, limit: int) -> str | None:
     if value is None:
         return None
     s = str(value)
@@ -75,8 +75,8 @@ def save_check_result(
     status: str, category: str = None, reputation: str = None,
     error_message: str = None, raw_response: dict = None
 ) -> None:
-    category = _clip(category, CATEGORY_MAX)
-    reputation = _clip(reputation, REPUTATION_MAX)
+    category = clip(category, CATEGORY_MAX)
+    reputation = clip(reputation, REPUTATION_MAX)
     existing = db.execute(
         select(CheckResult).where(
             CheckResult.domain_id == UUID(domain_id),

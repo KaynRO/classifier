@@ -152,8 +152,8 @@ class CheckResultResponse(BaseModel):
 class JobCreate(BaseModel):
     domain_id: UUID
     vendor: Optional[str] = None
-    # BlueCoat-specific: which "Filtering Service" to pick on the submission form.
-    # Forwarded to the bluecoat module; ignored by other vendors.
+    # BlueCoat's submission form has a required "Filtering Service" picker
+    # the user picks in the UI dialog; ignored by every other vendor.
     bluecoat_service: Optional[str] = None
 
 

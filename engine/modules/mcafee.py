@@ -129,18 +129,13 @@ class McAfee:
 
     def extract_reputation(self, body_text: str) -> str:
         reputation = "NOT FOUND"
-        # McAfee only emits one of these labels in the result table.
-        risk_pattern = re.compile(
-            r"\b(Minimal|Low|Medium|High|Unverified)\s+Risk\b",
-            re.IGNORECASE,
-        )
+        risk_pattern = re.compile(r"\b(Minimal|Low|Medium|High|Unverified)\s+Risk\b", re.IGNORECASE)
         try:
             for line in body_text.split("\n"):
                 stripped = line.strip()
                 if not stripped:
                     continue
-                # Skip the help-text paragraph on the feedback page that mentions
-                # "risk" in prose — it's not a rating.
+                # Skip the feedback-page boilerplate that contains "risk" in prose.
                 lowered = stripped.lower()
                 if "suggest changes" in lowered or "anonymous submissions" in lowered:
                     continue

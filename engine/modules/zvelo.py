@@ -68,9 +68,8 @@ class Zvelo:
         except Exception:
             self.logger.warning("[!] Results did not appear or timed out")
 
-        # Pull each result section directly from its own card (#v4-content,
-        # #brand-safe, #phishing). Earlier text-walking parsed the header
-        # row "CONTENT CATEGORIES" as the category — ignored the actual value.
+        # Read each result section by id; text-walking once parsed the
+        # heading "CONTENT CATEGORIES" as the category itself.
         def collect(selector: str) -> str:
             els = safe_find_elements(driver, selector)
             parts = [el.text.strip() for el in els if el.text and el.text.strip()]

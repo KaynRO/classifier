@@ -40,7 +40,6 @@ function StatsBentoImpl({
         lg:grid-cols-4 lg:auto-rows-[148px]
       "
     >
-      {/* Active Domains — large hero tile (2x2 on lg) */}
       <motion.div
         variants={{ hidden: { opacity: 0, y: 14 }, show: { opacity: 1, y: 0, transition: SPRING } }}
         className="lg:col-span-2 lg:row-span-2"
@@ -54,11 +53,9 @@ function StatsBentoImpl({
             hover:border-primary/30 transition-colors
           "
         >
-          {/* refraction layer */}
           <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-primary/[0.10] via-transparent to-transparent" />
           <div className="pointer-events-none absolute -bottom-20 -right-12 h-72 w-72 rounded-full bg-primary/15 blur-3xl" />
 
-          {/* perpetual orbital ring */}
           <motion.div
             aria-hidden
             animate={{ rotate: 360 }}
@@ -107,7 +104,6 @@ function StatsBentoImpl({
         </Link>
       </motion.div>
 
-      {/* Total Vendors */}
       <motion.div
         variants={{ hidden: { opacity: 0, y: 14 }, show: { opacity: 1, y: 0, transition: SPRING } }}
         className="
@@ -127,7 +123,6 @@ function StatsBentoImpl({
         <p className="mt-1 text-[11px] text-muted-foreground">Categorization + reputation</p>
       </motion.div>
 
-      {/* Mismatches */}
       <motion.div
         variants={{ hidden: { opacity: 0, y: 14 }, show: { opacity: 1, y: 0, transition: SPRING } }}
         className="
@@ -155,7 +150,6 @@ function StatsBentoImpl({
         </p>
       </motion.div>
 
-      {/* Pending Jobs — wide tile */}
       <motion.div
         variants={{ hidden: { opacity: 0, y: 14 }, show: { opacity: 1, y: 0, transition: SPRING } }}
         className="
@@ -164,7 +158,6 @@ function StatsBentoImpl({
           p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]
         "
       >
-        {/* shimmer underlay when there's pending work */}
         {(pendingJobs ?? 0) > 0 && (
           <motion.div
             aria-hidden

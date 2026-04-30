@@ -10,10 +10,8 @@ import { CATEGORIES, HIDDEN_VENDORS, getManualUrl } from '@/lib/constants'
 import { Link } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 
-// Treat a result as failing if the task itself errored OR the category text
-// is a vendor-side error marker (Captcha Failed, Timeout, Error, ...).
-// On the next successful run, the result row is overwritten with the new
-// status/category, so the manual link clears automatically.
+// A category like "Captcha Failed" comes back with status='success', so we
+// also flag those as errors for the manual-link UI.
 const RESULT_ERROR_MARKERS = ['captcha failed', 'altcha failed', 'login failed', 'playwright missing', 'rate limited', 'no key', 'timeout']
 function isErrorResult(result: any): boolean {
   if (!result) return false
@@ -131,10 +129,8 @@ function useResizableColumns(count: number, defaultW: (i: number) => number, sto
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [persist])
 
-  // Move a vendor column from one position to another (`from` and `to` are
-  // 0-based vendor indices, i.e., position 0 in the widths array — the Domain
-  // column — is excluded). Width follows the column so the visual size stays
-  // tied to the same vendor across reorders.
+  // `from`/`to` are 0-based vendor indices (position 0 in widths is Domain).
+  // Width follows the column so resizing stays tied to the same vendor.
   const moveWidth = useCallback((from: number, to: number) => {
     const f = from + 1
     const t = to + 1
@@ -180,9 +176,8 @@ function useColumnOrder(items: string[], storageKey?: string) {
 
   useEffect(() => {
     setOrder(prev => {
-      // If prev is empty (first mount before vendors loaded), fall back to
-      // localStorage — otherwise the reconcile would clobber the user's
-      // saved order with the default one.
+      // Fall back to storage when prev is empty (first mount before vendors
+      // load), otherwise reconcile clobbers the saved order with defaults.
       const stored = readStoredOrder(storageKey)
       const source = prev.length > 0 ? prev : stored
       const known = new Set(source)
@@ -316,8 +311,7 @@ export default function DomainsPage() {
     onError: () => toast.error('Failed to start bulk submit'),
   })
 
-  // BlueCoat needs a "Filtering Service" choice before any submit. The dialog
-  // collects it; the pending action remembers what to do after confirm.
+  // BlueCoat needs a "Filtering Service" picked before any submit.
   const [bluecoatPrompt, setBluecoatPrompt] = useState<null | {
     context: string
     onConfirm: (service: string) => void
@@ -367,7 +361,6 @@ export default function DomainsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Asymmetric editorial header — split-screen with action panel on the right */}
       <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
         <div className="max-w-[42rem]">
           <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70 mb-2">
@@ -918,9 +911,7 @@ function CategorizationRow({ domain, categoryVendors, bulkPending, onDelete, ope
           return (
             <td key={v.id} className="px-3 py-2 align-top text-center border-l border-border">
               <div className="flex flex-col items-center gap-1">
-                {/* Fixed-height slot for the result badge so single-line and
-                    two-line categories don't shift the timestamps/buttons
-                    out of horizontal alignment with other vendor cells. */}
+                {/* min-h fits two badge lines so timestamps/buttons stay aligned across cells. */}
                 <div className="min-h-[42px] w-full flex items-start justify-center">
                   {isCheckBusy || isSubmitBusy ? (
                     <StatusBadge status="running" onCancel={() => cancelMutation.mutate(v.name)} />

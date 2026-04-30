@@ -32,7 +32,7 @@ Frontend (nginx)  ←→  Web (FastAPI)  ←→  Postgres
 | TrendMicro | Category | ✓ | ✓ | SeleniumBase UC mode |
 | McAfee | Category | ✓ | ✓ | SeleniumBase UC mode |
 | Brightcloud | Category | ✓ | ✓ | SeleniumBase UC mode |
-| BlueCoat | Category | ✓ | ✓ | SeleniumBase UC mode |
+| BlueCoat | Category | ✓ | ✓ | SeleniumBase UC mode + Cloudflare Turnstile; submit prompts the user for a Filtering Service (Edge SWG / Cloud SWG / 18 others) |
 | Palo Alto | Category | ✓ | ✓ | SeleniumBase + Okta SSO + Gmail verification codes |
 | Zvelo | Category | ✓ | ✓ | SeleniumBase UC mode |
 | WatchGuard | Category | ✓ | ✓ | SeleniumBase + Azure AD B2C login |
@@ -46,15 +46,20 @@ Frontend (nginx)  ←→  Web (FastAPI)  ←→  Postgres
 | Google Safe Browsing | Reputation | ✓ | — | API, threat match lookup |
 
 ### Captcha chain
-`2Captcha → CapSolver → local Tesseract OCR` for image captchas; BrightData's `Captcha.solve` via CDP is used as a final fallback for hCaptcha on Sophos. Cloud provider reliability varies per vendor — see module-level comments for the current status.
+- **Image / Cloudflare Turnstile / reCAPTCHA v2**: `2Captcha → CapSolver → local Tesseract OCR`.
+- **hCaptcha (Sophos / FortiGuard)**: `2Captcha` only — CapSolver was empirically unable to solve the variants those vendors deploy and was burning ~60-90 s of dead retry per attempt before fallthrough.
+- **Sophos last-resort**: BrightData's `Captcha.solve` via CDP is invoked through the Scraping Browser when the cloud chain exhausts.
 
 ### Workflow features
-- **Domain-centric dashboard**: per-domain cards showing how many vendors report matching / neutral / suspicious classifications, with a "View Details" link to the full domain page
+- **Domain-centric dashboard**: bento-style summary tiles (active domains, vendor count, mismatches, pending jobs) with live pulse + per-domain cards showing match / neutral / suspicious counts
 - **Live job tracking**: Celery chord pattern with both success (`finalize_job`) and error (`finalize_job_error`) callbacks so the parent job row is always finalized, even on worker kill / TimeLimitExceeded
 - **Preflight orphan sweep**: stale `running` check_result rows from killed workers are auto-failed before a new attempt starts
 - **Per-vendor cancel**: clicking the X on a running badge revokes the Celery task and restores the previous known status from check_history (so the cancelled attempt doesn't corrupt the last-known result)
-- **Manual fallback**: after automation failure, a "Manual Check" / "Manual Submit" button appears on the affected vendor cell and opens the vendor's public page in a new tab
+- **Manual fallback**: a "Manual Check" / "Manual Submit" button appears on the affected vendor cell when either `status='failed'` *or* the returned category is a vendor-side error marker (`Captcha Failed`, `Timeout`, `Login Failed`, `ALTCHA Failed`, `Playwright Missing`, `Error …`). The button auto-clears on the next successful run.
+- **Per-vendor timestamps**: each vendor cell renders `Checked Xh ago` and `Submitted Xh ago` independently, fixed-width so timestamps align across rows
+- **Resizable, reorderable, collapsible tables**: drag any column header to reorder; drag the right edge to resize (widths follow the column across reorders); chevron in each section header collapses the table for full-screen focus on the other one — all persisted to `localStorage`
 - **Aggregate reputation counts**: VirusTotal / URLhaus / AbuseIPDB / Safe Browsing return strings like `Clean (0/94 harmless)` or `Malicious (3/94 flagged)` displayed inline with the status badge
+- **Result coloring**: badges classify by *match status* in the category context (green = matches desired, amber = different category, grey = no info, red = system error) and by *severity* in the safety context (red = malicious / high risk, amber = suspicious / medium, green = clean, grey = no info). Fuzzy token-prefix matching means `Finance` matches `Financial Services`, `Adult` matches `Adult Content`, etc.
 - **Role-based access**: admin users can add/delete/submit, viewer users can only check/observe
 
 ### Submit templates
@@ -132,6 +137,8 @@ Click **Check** on a vendor cell (runs that vendor only) or the bulk actions but
 ### Submitting a recategorization
 Requires admin role + the domain to have a `desired_category` set. Click **Submit** on a vendor cell; the worker navigates to the vendor's submission page, fills the form with the templated comment, solves any captcha in the chain, and records the outcome.
 
+For **BlueCoat**, the submit button (single-vendor or bulk) opens a dialog asking which Filtering Service to attach the request to — defaults to `Symantec Edge SWG` and lists every option from the live form (probe via `scripts/probe_bluecoat_services.py` if the upstream list ever changes).
+
 ### Handling stuck vendors
 If a vendor fails repeatedly (e.g., Sophos's hCaptcha sitekey is rejected by the cloud solvers), the Manual Check / Manual Submit buttons appear and open the vendor's public form in a new tab, pre-filled with the domain where possible.
 
@@ -171,15 +178,16 @@ engine/        Classifier engine (originally standalone CLI)
   modules/     Per-vendor classes (check + submit methods)
   helpers/     Shared utilities (Playwright/Selenium wrappers, captcha solver chain, logger, credentials)
   classifier.py CLI entry point (still usable outside Docker)
-frontend/      React 18 + Vite + Tailwind dashboard
+frontend/      React 18 + Vite + Tailwind + framer-motion dashboard, Geist/Geist Mono typography
 worker/        Dockerfile for the Celery worker (Chrome + Playwright + engine)
+scripts/       One-off utility scripts (e.g., probe_bluecoat_services.py for refreshing the BlueCoat filtering-service list)
 docker-compose.yml
 .env           (git-ignored)
 ```
 
 ## Troubleshooting
 
-- **Sophos jobs stuck running**: Sophos's hCaptcha sitekey is rejected by 2Captcha (`ERROR_METHOD_CALL`) and CapSolver (`ERROR_INVALID_TASK_DATA`). The module skips the cloud chain and goes straight to BrightData's `Captcha.solve` — success rate is low, so the Manual Submit fallback is often the right path.
+- **Sophos jobs stuck running**: Sophos's hCaptcha sitekey is rejected by CapSolver, so the dual-solver only tries 2Captcha (then BrightData's `Captcha.solve` for Sophos specifically). Success rate is still low — the Manual Submit fallback is often the right path.
 - **FortiGuard ALTCHA doesn't verify in 60s**: proof-of-work is CPU-bound in the remote browser; retrying usually resolves it. The submit flow now retries the whole form 5 times.
 - **CheckPoint login loop**: the user-center requires Auth0 identifier → password → TOTP MFA. Ensure `CHECKPOINT_USERNAME`, `CHECKPOINT_PASSWORD`, and `CHECKPOINT_TOTP_SECRET` (the base32 authenticator seed, not a generated code) are all set in `.env`.
 - **Orphan running rows after a crash**: the preflight `sweep_orphan_running()` in `backend/app/tasks/vendor_tasks.py` will auto-fail them on the next attempt; the `finalize_job_error` chord callback catches worker kills.

@@ -1,10 +1,9 @@
-"""
-One-off probe: read the full list of options from the BlueCoat sitereview
-"Filtering Service" dropdown (#selFilteringService) on the submission form.
-
-Reuses the existing BlueCoat module to handle Cloudflare turnstile and lookup,
-then opens the submit form and enumerates options.
-"""
+# One-off probe: read every option in BlueCoat sitereview's "Filtering
+# Service" dropdown (#selFilteringService) by reusing the BlueCoat module
+# to clear Cloudflare and reach the submission form.
+#
+# Run: docker compose cp scripts/probe_bluecoat_services.py worker:/tmp/
+#      docker compose exec worker python /tmp/probe_bluecoat_services.py
 import sys
 import time
 

@@ -179,7 +179,6 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-10">
-      {/* Asymmetric editorial header — left-aligned title with right-side meta + CTA */}
       <header className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between md:gap-12">
         <div className="max-w-[34rem]">
           <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70 mb-2">
