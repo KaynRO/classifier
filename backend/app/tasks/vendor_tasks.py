@@ -135,7 +135,8 @@ def save_check_result(
 def run_vendor_check(self, job_id: str, domain_id: str, domain_name: str,
                      vendor_name: str, vendor_id: int, action_type: str,
                      email: str = None, category: str = None,
-                     custom_text: str = None) -> dict:
+                     custom_text: str = None,
+                     bluecoat_service: str = None) -> dict:
     import io, logging, re, time as task_time
 
     db = SessionLocal()
@@ -178,6 +179,7 @@ def run_vendor_check(self, job_id: str, domain_id: str, domain_name: str,
             email=email,
             category=category,
             custom_text=custom_text,
+            bluecoat_service=bluecoat_service,
         )
 
         elapsed = round(task_time.time() - start_time, 1)
@@ -284,7 +286,10 @@ def finalize_job_error(self, *args, **kwargs) -> None:
 
 @celery_app.task(name="app.tasks.vendor_tasks.run_domain_job", bind=True, max_retries=0)
 def run_domain_job(self, job_id: str, domain_id: str, domain_name: str,
-                   action_type: str, vendor_filter: str = None) -> None:
+                   action_type: str, vendor_filter: str = None,
+                   options: dict = None) -> None:
+    options = options or {}
+    bluecoat_service = options.get("bluecoat_service")
     db = SessionLocal()
     try:
         query = select(Vendor).where(Vendor.is_active == True)
@@ -314,6 +319,7 @@ def run_domain_job(self, job_id: str, domain_id: str, domain_name: str,
                     job_id, domain_id, domain_name,
                     v.name, v.id, action_type,
                     email, desired_category, custom_text,
+                    bluecoat_service,
                 )
             )
 

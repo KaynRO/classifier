@@ -128,12 +128,12 @@ class BlueCoat:
         return cat_val
 
 
-    def submit(self, driver, url: str, email: str, category: str, custom_text: Optional[str] = None) -> None:
+    def submit(self, driver, url: str, email: str, category: str, custom_text: Optional[str] = None, service: Optional[str] = None) -> None:
         for protocol_url in prepare_urls_for_submission(url):
-            self.submit_single_url(driver, protocol_url, email, category, custom_text=custom_text)
+            self.submit_single_url(driver, protocol_url, email, category, custom_text=custom_text, service=service)
 
 
-    def submit_single_url(self, driver, url: str, email: str, category: str, custom_text: Optional[str] = None) -> None:
+    def submit_single_url(self, driver, url: str, email: str, category: str, custom_text: Optional[str] = None, service: Optional[str] = None) -> None:
         try:
             cat_val = self.check(driver, url)
 
@@ -156,9 +156,12 @@ class BlueCoat:
             wait_and_click_on_element(driver, self.ng_select_option)
             self.logger.info(f"[*] Selected category: {vendor_category}")
 
-            # Select filtering service via ng-select
+            # Select filtering service via ng-select. User-selected service
+            # comes from the submit dialog in the UI; fallback to "Other".
+            filter_value = service or "Other"
+            self.logger.info(f"[*] Filtering Service: {filter_value}")
             wait_and_click_on_element(driver, self.sub_filter_input)
-            fill_element(driver, self.sub_filter_input, "Other")
+            fill_element(driver, self.sub_filter_input, filter_value)
             time.sleep(1)
             wait_and_click_on_element(driver, self.ng_select_option)
 

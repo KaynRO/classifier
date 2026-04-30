@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { domainsApi, jobsApi, vendorsApi } from '@/api/client'
 import StatusBadge from '@/components/StatusBadge'
 import CategoryBadge from '@/components/CategoryBadge'
+import BluecoatServiceDialog from '@/components/BluecoatServiceDialog'
 import { Plus, Search, Trash2, X, Loader2, PlayCircle, SendHorizonal, ExternalLink, ChevronUp, ChevronDown } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { CATEGORIES, HIDDEN_VENDORS, getManualUrl } from '@/lib/constants'
@@ -309,11 +310,18 @@ export default function DomainsPage() {
   })
 
   const bulkSubmitMutation = useMutation({
-    mutationFn: () => jobsApi.bulkSubmit(),
+    mutationFn: ({ bluecoat_service }: { bluecoat_service?: string }) => jobsApi.bulkSubmit(undefined, bluecoat_service),
     onMutate: () => { setBulkCatPending(true); setTimeout(() => setBulkCatPending(false), 15000) },
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['jobs'] }); toast.success('Submit started for all domains') },
     onError: () => toast.error('Failed to start bulk submit'),
   })
+
+  // BlueCoat needs a "Filtering Service" choice before any submit. The dialog
+  // collects it; the pending action remembers what to do after confirm.
+  const [bluecoatPrompt, setBluecoatPrompt] = useState<null | {
+    context: string
+    onConfirm: (service: string) => void
+  }>(null)
 
   const rawCategoryVendors  = vendors?.filter((v: any) => v.vendor_type === 'category'   && !HIDDEN_VENDORS.has(v.name)) || []
   const rawReputationVendors = vendors?.filter((v: any) => v.vendor_type === 'reputation' && !HIDDEN_VENDORS.has(v.name)) || []
@@ -471,7 +479,17 @@ export default function DomainsPage() {
               Check All Domains
             </button>
             <button
-              onClick={() => bulkSubmitMutation.mutate()}
+              onClick={() => {
+                const bluecoatInScope = categoryVendors.some((v: any) => v.name === 'bluecoat' && v.supports_submit)
+                if (bluecoatInScope) {
+                  setBluecoatPrompt({
+                    context: `Submitting every active domain to all category vendors. BlueCoat requires a Filtering Service.`,
+                    onConfirm: (service) => { setBluecoatPrompt(null); bulkSubmitMutation.mutate({ bluecoat_service: service }) },
+                  })
+                } else {
+                  bulkSubmitMutation.mutate({})
+                }
+              }}
               disabled={bulkSubmitMutation.isPending}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary/15 text-primary text-[11px] font-medium hover:bg-primary/25 transition-colors disabled:opacity-50"
             >
@@ -507,6 +525,7 @@ export default function DomainsPage() {
                   categoryVendors={categoryVendors}
                   bulkPending={bulkCatPending}
                   onDelete={() => setDomainToDelete(domain)}
+                  openBluecoatDialog={(ctx, onConfirm) => setBluecoatPrompt({ context: ctx, onConfirm: (s) => { setBluecoatPrompt(null); onConfirm(s) } })}
                 />
               ))}
               {isLoading && <LoadingRow cols={1 + categoryVendors.length} />}
@@ -520,6 +539,14 @@ export default function DomainsPage() {
       </section>
 
       {showAdd && <AddDomainModal onClose={() => setShowAdd(false)} />}
+
+      {bluecoatPrompt && (
+        <BluecoatServiceDialog
+          context={bluecoatPrompt.context}
+          onConfirm={bluecoatPrompt.onConfirm}
+          onCancel={() => setBluecoatPrompt(null)}
+        />
+      )}
 
       {domainToDelete && (
         <DeleteConfirmDialog
@@ -715,8 +742,9 @@ function SafetyRow({ domain, reputationVendors, bulkPending, onDelete }: { domai
   )
 }
 
-function CategorizationRow({ domain, categoryVendors, bulkPending, onDelete }: {
+function CategorizationRow({ domain, categoryVendors, bulkPending, onDelete, openBluecoatDialog }: {
   domain: any; categoryVendors: any[]; bulkPending?: boolean; onDelete: () => void
+  openBluecoatDialog: (context: string, onConfirm: (service: string) => void) => void
 }) {
   const queryClient = useQueryClient()
 
@@ -760,18 +788,32 @@ function CategorizationRow({ domain, categoryVendors, bulkPending, onDelete }: {
   })
 
   const submitVendorMutation = useMutation({
-    mutationFn: (vendor: string) => jobsApi.submit({
+    mutationFn: ({ vendor, bluecoat_service }: { vendor: string; bluecoat_service?: string }) => jobsApi.submit({
       domain_id: domain.id,
       vendor: vendor === '__all__' ? undefined : vendor,
+      bluecoat_service,
     }),
-    onMutate: (vendor) => {
+    onMutate: ({ vendor }) => {
       markSubmitPending(vendor)
       if (vendor === '__all__') toast('Submitting to all vendors...', { icon: '📤' })
       else toast(`Submitting to ${vendor}...`, { icon: '📤' })
     },
-    onError: (_, vendor) => toast.error(`Submit failed${vendor !== '__all__' ? ` for ${vendor}` : ''}`),
+    onError: (_, { vendor }) => toast.error(`Submit failed${vendor !== '__all__' ? ` for ${vendor}` : ''}`),
     onSettled: () => queryClient.invalidateQueries({ queryKey: ['domain-results', domain.id] }),
   })
+
+  const triggerSubmit = (vendor: string) => {
+    const bluecoatInScope = vendor === 'bluecoat'
+      || (vendor === '__all__' && categoryVendors.some((v: any) => v.name === 'bluecoat' && v.supports_submit))
+    if (bluecoatInScope) {
+      const ctx = vendor === 'bluecoat'
+        ? `Vendor: BlueCoat · Domain: ${domain.domain}`
+        : `Vendor: All (incl. BlueCoat) · Domain: ${domain.domain}`
+      openBluecoatDialog(ctx, (service) => submitVendorMutation.mutate({ vendor, bluecoat_service: service }))
+    } else {
+      submitVendorMutation.mutate({ vendor })
+    }
+  }
 
   const cancelMutation = useMutation({
     mutationFn: (vendor: string) => jobsApi.cancelVendor(domain.id, vendor),
@@ -823,7 +865,7 @@ function CategorizationRow({ domain, categoryVendors, bulkPending, onDelete }: {
                 </button>
                 {domain.desired_category && (
                   <button
-                    onClick={() => submitVendorMutation.mutate('__all__')}
+                    onClick={() => triggerSubmit('__all__')}
                     className="p-1 rounded hover:bg-primary/10 text-primary/60 hover:text-primary transition-colors"
                     title="Submit all vendors"
                   >
@@ -888,7 +930,7 @@ function CategorizationRow({ domain, categoryVendors, bulkPending, onDelete }: {
                         {sr?.completed_at ? timeAgo(sr.completed_at) : '—'}
                       </span>
                       <button
-                        onClick={() => submitVendorMutation.mutate(v.name)}
+                        onClick={() => triggerSubmit(v.name)}
                         disabled={isSubmitBusy || isCheckBusy || !domain.desired_category}
                         title={!domain.desired_category ? 'Set desired category first' : `Submit ${domain.desired_category} to ${v.display_name}`}
                         className={`w-full px-2 py-1 rounded-md text-[11px] font-medium transition-all duration-200 ${

@@ -6,6 +6,7 @@ import toast from 'react-hot-toast'
 import { CATEGORIES, HIDDEN_VENDORS } from '@/lib/constants'
 import StatusBadge from '@/components/StatusBadge'
 import CategoryBadge from '@/components/CategoryBadge'
+import BluecoatServiceDialog from '@/components/BluecoatServiceDialog'
 import { ArrowLeft, Play, Send, RefreshCw, Save, Loader2 } from 'lucide-react'
 
 export default function DomainDetailPage() {
@@ -62,10 +63,27 @@ export default function DomainDetailPage() {
   })
 
   const submitMutation = useMutation({
-    mutationFn: (vendor?: string) => jobsApi.submit({ domain_id: id!, vendor }),
-    onMutate: (vendor) => { if (vendor) markPending(vendor) },
+    mutationFn: ({ vendor, bluecoat_service }: { vendor?: string; bluecoat_service?: string }) => jobsApi.submit({ domain_id: id!, vendor, bluecoat_service }),
+    onMutate: ({ vendor }) => { if (vendor) markPending(vendor) },
     onSuccess: () => refetchResults(),
   })
+
+  const [bluecoatPrompt, setBluecoatPrompt] = useState<null | { context: string; onConfirm: (s: string) => void }>(null)
+  const triggerSubmit = (vendor?: string) => {
+    const allCategoryVendorsHaveBluecoat = !vendor && (vendors || []).some((v: any) => v.name === 'bluecoat' && v.supports_submit && v.vendor_type === 'category')
+    const isBluecoat = vendor === 'bluecoat'
+    if (isBluecoat || allCategoryVendorsHaveBluecoat) {
+      const ctx = isBluecoat
+        ? `Vendor: BlueCoat · Domain: ${domain?.domain || ''}`
+        : `Vendor: All (incl. BlueCoat) · Domain: ${domain?.domain || ''}`
+      setBluecoatPrompt({
+        context: ctx,
+        onConfirm: (service) => { setBluecoatPrompt(null); submitMutation.mutate({ vendor, bluecoat_service: service }) },
+      })
+    } else {
+      submitMutation.mutate({ vendor })
+    }
+  }
 
   const [editing, setEditing] = useState(false)
   const [desiredCategory, setDesiredCategory] = useState('')
@@ -124,7 +142,7 @@ export default function DomainDetailPage() {
             <RefreshCw size={14} /> Reputation
           </button>
           {domain?.desired_category && (
-            <button onClick={() => submitMutation.mutate()} className="flex items-center gap-2 px-3 py-2 rounded-md bg-primary text-primary-foreground text-sm hover:opacity-90">
+            <button onClick={() => triggerSubmit()} className="flex items-center gap-2 px-3 py-2 rounded-md bg-primary text-primary-foreground text-sm hover:opacity-90">
               <Send size={14} /> Submit All
             </button>
           )}
@@ -221,7 +239,7 @@ export default function DomainDetailPage() {
                         {sr?.completed_at ? `Last submit: ${new Date(sr.completed_at).toLocaleString()}` : 'Last submit: —'}
                       </span>
                       <button
-                        onClick={() => submitMutation.mutate(vendor.name)}
+                        onClick={() => triggerSubmit(vendor.name)}
                         disabled={busy || submitBusy}
                         className={`py-1.5 rounded text-xs font-medium text-center transition-colors ${
                           busy || submitBusy ? 'bg-primary/10 text-primary/30 cursor-not-allowed' : 'bg-primary text-primary-foreground hover:opacity-90'
@@ -301,6 +319,14 @@ export default function DomainDetailPage() {
             ))}
           </div>
         </div>
+      )}
+
+      {bluecoatPrompt && (
+        <BluecoatServiceDialog
+          context={bluecoatPrompt.context}
+          onConfirm={bluecoatPrompt.onConfirm}
+          onCancel={() => setBluecoatPrompt(null)}
+        />
       )}
     </div>
   )

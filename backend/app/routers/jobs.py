@@ -15,7 +15,8 @@ router = APIRouter(prefix="/api/v1/jobs", tags=["jobs"])
 
 async def create_job(
     db: AsyncSession, domain_id: UUID, action_type: str,
-    vendor_filter: str | None, user_id: UUID
+    vendor_filter: str | None, user_id: UUID,
+    options: dict | None = None,
 ) -> Job:
     result = await db.execute(select(Domain).where(Domain.id == domain_id))
     domain = result.scalar_one_or_none()
@@ -36,6 +37,7 @@ async def create_job(
     task = celery_app.send_task(
         "app.tasks.vendor_tasks.run_domain_job",
         args=[str(job.id), str(domain_id), domain.domain, action_type, vendor_filter],
+        kwargs={"options": options or {}},
     )
     job.celery_task_id = task.id
     job.status = "running"
@@ -72,7 +74,8 @@ async def create_submit_job(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_admin),
 ) -> JobResponse:
-    job = await create_job(db, data.domain_id, "submit", data.vendor, user.id)
+    options = {"bluecoat_service": data.bluecoat_service} if data.bluecoat_service else None
+    job = await create_job(db, data.domain_id, "submit", data.vendor, user.id, options=options)
     return JobResponse.model_validate(job)
 
 
@@ -115,6 +118,7 @@ async def bulk_reputation(
 @router.post("/bulk-submit", response_model=list[JobResponse], status_code=201)
 async def bulk_submit(
     vendor: str | None = None,
+    bluecoat_service: str | None = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_admin),
 ) -> list[JobResponse]:
@@ -123,9 +127,10 @@ async def bulk_submit(
     if not domains:
         raise HTTPException(status_code=404, detail="No active domains found")
 
+    options = {"bluecoat_service": bluecoat_service} if bluecoat_service else None
     jobs = []
     for domain in domains:
-        job = await create_job(db, domain.id, "submit", vendor, user.id)
+        job = await create_job(db, domain.id, "submit", vendor, user.id, options=options)
         jobs.append(JobResponse.model_validate(job))
     return jobs
 
