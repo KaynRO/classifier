@@ -68,45 +68,41 @@ class Zvelo:
         except Exception:
             self.logger.warning("[!] Results did not appear or timed out")
 
-        # Extract category from results text
-        res_cat = "UNKNOWN"
-        if not return_reputation_only:
-            try:
-                text = get_text(driver, self.res_container)
-                lines = [l.strip() for l in text.split('\n') if l.strip()]
+        # Pull each result section directly from its own card (#v4-content,
+        # #brand-safe, #phishing). Earlier text-walking parsed the header
+        # row "CONTENT CATEGORIES" as the category — ignored the actual value.
+        def collect(selector: str) -> str:
+            els = safe_find_elements(driver, selector)
+            parts = [el.text.strip() for el in els if el.text and el.text.strip()]
+            return ", ".join(parts)
 
-                # Find the "Categorization Results" header and grab the next line
-                start_idx = -1
-                for i, line in enumerate(lines):
-                    if "Categorization Results" in line:
-                        start_idx = i
-                        break
+        if return_reputation_only:
+            return None
 
-                if start_idx != -1 and start_idx + 1 < len(lines):
-                    res_cat = lines[start_idx + 1].upper()
+        content_cat = collect(self.cat_res) or "UNKNOWN"
+        brand_raw = collect(self.brand_res).lower()
+        phish_raw = collect(self.phish_res).lower()
 
-                self.logger.success(f"[+] Category: {res_cat}")
-            except Exception:
-                self.logger.warning(f"[!] Could not extract category from results")
+        if brand_raw == "yes":
+            brand_label = "Safe"
+        elif brand_raw == "no":
+            brand_label = "Not Safe"
         else:
-            res_cat = None
+            brand_label = brand_raw.title() if brand_raw else ""
 
-        # Extract brand safety result
-        try:
-            if count_elements(driver, self.brand_res) > 0:
-                brand_val = get_text(driver, self.brand_res)
-                self.logger.success(f"[+] Brand Safe: {brand_val}")
-        except Exception:
-            pass
+        if phish_raw:
+            phish_label = "No Phishing Detected" if "not" in phish_raw else "Phishing Detected"
+        else:
+            phish_label = ""
 
-        # Extract phishing detection result
-        try:
-            if count_elements(driver, self.phish_res) > 0:
-                phish_val = get_text(driver, self.phish_res)
-                self.logger.success(f"[+] Phishing: {phish_val}")
-        except Exception:
-            pass
+        parts = [content_cat]
+        if brand_label:
+            parts.append(brand_label)
+        if phish_label:
+            parts.append(phish_label)
+        res_cat = " | ".join(parts)
 
+        self.logger.success(f"[+] Category: {res_cat}")
         return res_cat
 
 

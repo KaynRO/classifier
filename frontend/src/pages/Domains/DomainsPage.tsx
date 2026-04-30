@@ -7,6 +7,7 @@ import { Plus, Search, Trash2, X, Loader2, PlayCircle, SendHorizonal, ExternalLi
 import toast from 'react-hot-toast'
 import { CATEGORIES, HIDDEN_VENDORS, getManualUrl } from '@/lib/constants'
 import { Link } from 'react-router-dom'
+import { cn } from '@/lib/utils'
 
 function reputationString(r: any): string {
   return r?.reputation || r?.category || ''
@@ -66,11 +67,6 @@ function useResizableColumns(count: number, defaultW: (i: number) => number, sto
   useEffect(() => { liveW.current = [...widths] }, [widths])
 
   useEffect(() => {
-    if (!storageKey || typeof window === 'undefined') return
-    try { window.localStorage.setItem(storageKey, JSON.stringify(widths)) } catch { /* ignore */ }
-  }, [widths, storageKey])
-
-  useEffect(() => {
     setWidths(prev => {
       if (prev.length === count) return prev
       const stored = readStoredWidths(storageKey)
@@ -79,6 +75,17 @@ function useResizableColumns(count: number, defaultW: (i: number) => number, sto
   // defaultW is module-level constant — safe to omit from deps
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [count, storageKey])
+
+  const persist = useCallback((next: number[]) => {
+    if (!storageKey || typeof window === 'undefined') return
+    try {
+      const stored = readStoredWidths(storageKey)
+      // Merge so we never shrink a longer saved array (in case current count
+      // is still ramping up while vendors load).
+      const merged = Array.from({ length: Math.max(stored.length, next.length) }, (_, i) => next[i] ?? stored[i])
+      window.localStorage.setItem(storageKey, JSON.stringify(merged))
+    } catch { /* ignore */ }
+  }, [storageKey])
 
   const startResize = useCallback((idx: number, e: React.MouseEvent) => {
     e.preventDefault()
@@ -98,7 +105,9 @@ function useResizableColumns(count: number, defaultW: (i: number) => number, sto
     const onUp = () => {
       document.body.style.cursor    = ''
       document.body.style.userSelect = ''
-      setWidths([...liveW.current])
+      const next = [...liveW.current]
+      setWidths(next)
+      persist(next)
       document.removeEventListener('mousemove', onMove)
       document.removeEventListener('mouseup',   onUp)
     }
@@ -106,9 +115,121 @@ function useResizableColumns(count: number, defaultW: (i: number) => number, sto
     document.addEventListener('mousemove', onMove)
     document.addEventListener('mouseup',   onUp)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [persist])
 
-  return { widths, colRefs, startResize }
+  // Move a vendor column from one position to another (`from` and `to` are
+  // 0-based vendor indices, i.e., position 0 in the widths array — the Domain
+  // column — is excluded). Width follows the column so the visual size stays
+  // tied to the same vendor across reorders.
+  const moveWidth = useCallback((from: number, to: number) => {
+    const f = from + 1
+    const t = to + 1
+    setWidths(prev => {
+      if (f < 0 || t < 0 || f >= prev.length || t >= prev.length || f === t) return prev
+      const next = [...prev]
+      const [moved] = next.splice(f, 1)
+      next.splice(t, 0, moved)
+      if (storageKey && typeof window !== 'undefined') {
+        try { window.localStorage.setItem(storageKey, JSON.stringify(next)) } catch { /* ignore */ }
+      }
+      return next
+    })
+  }, [storageKey])
+
+  return { widths, colRefs, startResize, moveWidth }
+}
+
+// Persistent column order keyed by stable vendor name. Newcomers appended at
+// the end; removed vendors dropped silently.
+function useColumnOrder(items: string[], storageKey?: string) {
+  const itemsKey = items.join('|')
+
+  const [order, setOrder] = useState<string[]>(() => {
+    if (!storageKey || typeof window === 'undefined') return items.slice()
+    try {
+      const raw = window.localStorage.getItem(storageKey)
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        if (Array.isArray(parsed) && parsed.every(n => typeof n === 'string')) {
+          const known = new Set(parsed)
+          const existing = parsed.filter((n: string) => items.includes(n))
+          const newcomers = items.filter(n => !known.has(n))
+          return [...existing, ...newcomers]
+        }
+      }
+    } catch { /* ignore */ }
+    return items.slice()
+  })
+
+  useEffect(() => {
+    setOrder(prev => {
+      const known = new Set(prev)
+      const existing = prev.filter(n => items.includes(n))
+      const newcomers = items.filter(n => !known.has(n))
+      const next = [...existing, ...newcomers]
+      const same = next.length === prev.length && next.every((n, i) => n === prev[i])
+      return same ? prev : next
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [itemsKey])
+
+  const move = useCallback((from: number, to: number) => {
+    if (from === to || from < 0 || to < 0) return
+    setOrder(prev => {
+      if (from >= prev.length || to >= prev.length) return prev
+      const next = [...prev]
+      const [moved] = next.splice(from, 1)
+      next.splice(to, 0, moved)
+      if (storageKey && typeof window !== 'undefined') {
+        try { window.localStorage.setItem(storageKey, JSON.stringify(next)) } catch { /* ignore */ }
+      }
+      return next
+    })
+  }, [storageKey])
+
+  return { order, move }
+}
+
+function DragHandle({
+  index,
+  onReorder,
+  children,
+  className,
+}: {
+  index: number
+  onReorder: (from: number, to: number) => void
+  children: React.ReactNode
+  className?: string
+}) {
+  const [dropTarget, setDropTarget] = useState(false)
+  return (
+    <div
+      draggable
+      onDragStart={e => {
+        e.dataTransfer.setData('text/plain', String(index))
+        e.dataTransfer.effectAllowed = 'move'
+      }}
+      onDragOver={e => {
+        e.preventDefault()
+        e.dataTransfer.dropEffect = 'move'
+        if (!dropTarget) setDropTarget(true)
+      }}
+      onDragLeave={() => setDropTarget(false)}
+      onDrop={e => {
+        e.preventDefault()
+        setDropTarget(false)
+        const from = Number(e.dataTransfer.getData('text/plain'))
+        if (!Number.isNaN(from) && from !== index) onReorder(from, index)
+      }}
+      className={cn(
+        'cursor-grab active:cursor-grabbing select-none transition-colors',
+        dropTarget && 'bg-primary/10 ring-1 ring-primary/40 rounded',
+        className,
+      )}
+    >
+      {children}
+    </div>
+  )
 }
 
 function ResizeHandle({ onMouseDown }: { onMouseDown: (e: React.MouseEvent) => void }) {
@@ -116,9 +237,13 @@ function ResizeHandle({ onMouseDown }: { onMouseDown: (e: React.MouseEvent) => v
     <div
       onMouseDown={onMouseDown}
       onClick={e => e.stopPropagation()}
-      className="absolute right-0 top-0 h-full w-[8px] cursor-col-resize z-20 group/rh flex items-center justify-center"
+      className="absolute right-0 top-0 h-full w-[10px] cursor-col-resize z-20 group/rh"
     >
-      <div className="w-[2px] h-[70%] rounded-full bg-border/70 group-hover/rh:bg-primary transition-colors duration-150" />
+      {/* Visible line sits at the column boundary so it overlays the actual
+          border-l of the next cell — no phantom divider offset between header
+          and body. Transparent at rest (the column border is already visible),
+          primary on hover. */}
+      <div className="absolute right-0 top-0 w-[2px] h-full bg-transparent group-hover/rh:bg-primary transition-colors duration-150" />
     </div>
   )
 }
@@ -169,13 +294,34 @@ export default function DomainsPage() {
     onError: () => toast.error('Failed to start bulk submit'),
   })
 
-  const categoryVendors  = vendors?.filter((v: any) => v.vendor_type === 'category'   && !HIDDEN_VENDORS.has(v.name)) || []
-  const reputationVendors = vendors?.filter((v: any) => v.vendor_type === 'reputation' && !HIDDEN_VENDORS.has(v.name)) || []
+  const rawCategoryVendors  = vendors?.filter((v: any) => v.vendor_type === 'category'   && !HIDDEN_VENDORS.has(v.name)) || []
+  const rawReputationVendors = vendors?.filter((v: any) => v.vendor_type === 'reputation' && !HIDDEN_VENDORS.has(v.name)) || []
 
-  const { widths: safetyW, colRefs: safetyColRefs, startResize: startSafetyResize } =
+  const { order: safetyOrder, move: moveSafetyOrder } =
+    useColumnOrder(rawReputationVendors.map((v: any) => v.name), 'domains:safetyColOrder')
+  const { order: catOrder, move: moveCatOrder } =
+    useColumnOrder(rawCategoryVendors.map((v: any) => v.name), 'domains:catColOrder')
+
+  const reputationVendors = safetyOrder
+    .map(name => rawReputationVendors.find((v: any) => v.name === name))
+    .filter(Boolean)
+  const categoryVendors = catOrder
+    .map(name => rawCategoryVendors.find((v: any) => v.name === name))
+    .filter(Boolean)
+
+  const { widths: safetyW, colRefs: safetyColRefs, startResize: startSafetyResize, moveWidth: moveSafetyWidth } =
     useResizableColumns(1 + reputationVendors.length, SAFETY_DEFAULT_W, 'domains:safetyColWidths')
-  const { widths: catW, colRefs: catColRefs, startResize: startCatResize } =
+  const { widths: catW, colRefs: catColRefs, startResize: startCatResize, moveWidth: moveCatWidth } =
     useResizableColumns(1 + categoryVendors.length, CAT_DEFAULT_W, 'domains:catColWidths')
+
+  const moveSafetyColumn = (from: number, to: number) => {
+    moveSafetyOrder(from, to)
+    moveSafetyWidth(from, to)
+  }
+  const moveCatColumn = (from: number, to: number) => {
+    moveCatOrder(from, to)
+    moveCatWidth(from, to)
+  }
 
   const [safetyCollapsed, setSafetyCollapsed] = useState<boolean>(() => {
     try { return window.localStorage.getItem('domains:safetyCollapsed') === '1' } catch { return false }
@@ -252,7 +398,7 @@ export default function DomainsPage() {
             </colgroup>
             <thead className="sticky top-0 z-20 bg-card">
               <tr className="border-b border-border text-[11px] uppercase tracking-wider text-muted-foreground select-none">
-                <th className="relative px-4 py-2.5 text-left font-medium sticky left-0 bg-card z-30 overflow-hidden">
+                <th className="relative px-4 py-2.5 text-left font-medium sticky left-0 bg-card z-30 overflow-hidden border-r border-border">
                   <span className="block truncate">Domain</span>
                   <ResizeHandle onMouseDown={e => startSafetyResize(0, e)} />
                 </th>
@@ -260,13 +406,15 @@ export default function DomainsPage() {
                   const vendorUrl = getManualUrl(v.name, 'check', '')?.replace(encodeURIComponent(''), '').replace(/[?&].*$/, '') || null
                   return (
                     <th key={v.id} className="relative px-2 py-2.5 text-center font-medium border-l border-border overflow-hidden">
-                      {vendorUrl ? (
-                        <a href={vendorUrl} target="_blank" rel="noopener noreferrer" className="block truncate hover:text-primary transition-colors" title={`Open ${v.display_name}`}>
-                          {v.display_name}
-                        </a>
-                      ) : (
-                        <span className="block truncate">{v.display_name}</span>
-                      )}
+                      <DragHandle index={i} onReorder={moveSafetyColumn} className="block">
+                        {vendorUrl ? (
+                          <a href={vendorUrl} target="_blank" rel="noopener noreferrer" className="block truncate hover:text-primary transition-colors" title={`Drag to reorder · click to open ${v.display_name}`} onClick={e => e.stopPropagation()}>
+                            {v.display_name}
+                          </a>
+                        ) : (
+                          <span className="block truncate" title="Drag to reorder">{v.display_name}</span>
+                        )}
+                      </DragHandle>
                       <ResizeHandle onMouseDown={e => startSafetyResize(1 + i, e)} />
                     </th>
                   )
@@ -328,7 +476,7 @@ export default function DomainsPage() {
               ))}
             </colgroup>
             <thead className="sticky top-0 z-20 bg-card">
-              <VendorHeaders categoryVendors={categoryVendors} widths={catW} startResize={startCatResize} />
+              <VendorHeaders categoryVendors={categoryVendors} widths={catW} startResize={startCatResize} onReorder={moveCatColumn} />
             </thead>
             <tbody>
               {data?.items?.map((domain: any) => (
@@ -366,14 +514,15 @@ export default function DomainsPage() {
   )
 }
 
-function VendorHeaders({ categoryVendors, widths, startResize }: {
+function VendorHeaders({ categoryVendors, widths, startResize, onReorder }: {
   categoryVendors: any[]
   widths: number[]
   startResize: (idx: number, e: React.MouseEvent) => void
+  onReorder: (from: number, to: number) => void
 }) {
   return (
     <tr className="border-b border-border text-[11px] uppercase tracking-wider text-muted-foreground select-none">
-      <th className="relative px-4 py-2.5 text-left font-medium sticky left-0 bg-card z-30 overflow-hidden">
+      <th className="relative px-4 py-2.5 text-left font-medium sticky left-0 bg-card z-30 overflow-hidden border-r border-border">
         <span className="block truncate">Domain</span>
         <ResizeHandle onMouseDown={e => startResize(0, e)} />
       </th>
@@ -381,13 +530,15 @@ function VendorHeaders({ categoryVendors, widths, startResize }: {
         const vendorUrl = getManualUrl(v.name, 'check', '')?.replace(encodeURIComponent(''), '').replace(/[?&].*$/, '') || null
         return (
           <th key={v.id} className="relative px-4 py-2.5 text-center font-medium border-l border-border overflow-hidden">
-            {vendorUrl ? (
-              <a href={vendorUrl} target="_blank" rel="noopener noreferrer" className="block truncate hover:text-primary transition-colors" title={`Open ${v.display_name}`}>
-                {v.display_name}
-              </a>
-            ) : (
-              <span className="block truncate">{v.display_name}</span>
-            )}
+            <DragHandle index={i} onReorder={onReorder} className="block">
+              {vendorUrl ? (
+                <a href={vendorUrl} target="_blank" rel="noopener noreferrer" className="block truncate hover:text-primary transition-colors" title={`Drag to reorder · click to open ${v.display_name}`} onClick={e => e.stopPropagation()}>
+                  {v.display_name}
+                </a>
+              ) : (
+                <span className="block truncate" title="Drag to reorder">{v.display_name}</span>
+              )}
+            </DragHandle>
             <ResizeHandle onMouseDown={e => startResize(1 + i, e)} />
           </th>
         )
@@ -460,7 +611,7 @@ function SafetyRow({ domain, reputationVendors, bulkPending, onDelete }: { domai
 
   return (
     <tr className="group/row border-b border-border hover:bg-[hsl(var(--table-row-hover,var(--accent)))] transition-colors">
-      <td className="px-4 py-3 align-middle sticky left-0 bg-card z-10">
+      <td className="px-4 py-3 align-middle sticky left-0 bg-card z-10 border-r border-border">
         <div className="flex items-center justify-between gap-1.5">
           <Link
             to={`/domains/${domain.id}`}
@@ -622,7 +773,7 @@ function CategorizationRow({ domain, categoryVendors, bulkPending, onDelete }: {
   return (
     <>
       <tr className="group/row border-b border-border hover:bg-[hsl(var(--table-row-hover,var(--accent)))] transition-colors">
-        <td className="px-4 py-2.5 sticky left-0 bg-card z-10">
+        <td className="px-4 py-2.5 sticky left-0 bg-card z-10 border-r border-border">
           <div className="flex items-start justify-between gap-1.5">
             <div className="min-w-0">
               <Link
@@ -679,15 +830,20 @@ function CategorizationRow({ domain, categoryVendors, bulkPending, onDelete }: {
           const manualCheckUrl = checkFailed ? getManualUrl(v.name, 'check', domain.domain) : null
           const manualSubmitUrl = submitFailed && v.supports_submit ? getManualUrl(v.name, 'submit', domain.domain) : null
           return (
-            <td key={v.id} className="px-3 py-2 text-center border-l border-border">
+            <td key={v.id} className="px-3 py-2 align-top text-center border-l border-border">
               <div className="flex flex-col items-center gap-1">
-                {isCheckBusy || isSubmitBusy ? (
-                  <StatusBadge status="running" onCancel={() => cancelMutation.mutate(v.name)} />
-                ) : r?.status === 'success' ? (
-                  <CategoryBadge category={r.category} desired={domain.desired_category} />
-                ) : (
-                  <StatusBadge status={r?.status} />
-                )}
+                {/* Fixed-height slot for the result badge so single-line and
+                    two-line categories don't shift the timestamps/buttons
+                    out of horizontal alignment with other vendor cells. */}
+                <div className="min-h-[42px] w-full flex items-start justify-center">
+                  {isCheckBusy || isSubmitBusy ? (
+                    <StatusBadge status="running" onCancel={() => cancelMutation.mutate(v.name)} />
+                  ) : r?.status === 'success' ? (
+                    <CategoryBadge category={r.category} desired={domain.desired_category} />
+                  ) : (
+                    <StatusBadge status={r?.status} />
+                  )}
+                </div>
                 <div className="flex justify-center items-end gap-2 mt-0.5">
                   <div className="flex flex-col items-stretch gap-0.5 w-[72px]">
                     <span className="text-[9px] text-muted-foreground/60 leading-none text-center" title={r?.completed_at ? `Last check: ${new Date(r.completed_at).toLocaleString()}` : 'No check yet'}>
