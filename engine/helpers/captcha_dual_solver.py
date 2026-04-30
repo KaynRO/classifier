@@ -10,10 +10,9 @@ class DualCaptchaSolver:
         self.capsolver_key = capsolver_key
         self.brightdata_key = brightdata_key
 
+    # 2Captcha only — CapSolver couldn't solve the hCaptcha variants Sophos
+    # and FortiGuard show; routing through it just burns 60-90s of retry.
     def solve_hcaptcha(self, sitekey: str, page_url: str) -> str | None:
-        """Solve hCaptcha. Tries 2Captcha first, falls back to CapSolver."""
-
-        # Try 2Captcha (3 attempts)
         if self.twocaptcha_key:
             for attempt in range(3):
                 logger.info(f"[*] hCaptcha: 2Captcha attempt {attempt + 1}/3")
@@ -22,16 +21,7 @@ class DualCaptchaSolver:
                     return token
                 logger.warning(f"[!] 2Captcha attempt {attempt + 1} failed")
 
-        # Fallback to CapSolver (3 attempts)
-        if self.capsolver_key:
-            for attempt in range(3):
-                logger.info(f"[*] hCaptcha: CapSolver attempt {attempt + 1}/3")
-                token = self._capsolver_hcaptcha(sitekey, page_url)
-                if token:
-                    return token
-                logger.warning(f"[!] CapSolver attempt {attempt + 1} failed")
-
-        logger.error("[-] hCaptcha: All solvers exhausted")
+        logger.error("[-] hCaptcha: 2Captcha exhausted (CapSolver skipped — does not support this hCaptcha)")
         return None
 
     def solve_recaptcha_v2(self, sitekey: str, page_url: str) -> str | None:
@@ -78,7 +68,8 @@ class DualCaptchaSolver:
         return None
 
     def solve_hcaptcha_chain(self, sitekey: str, page_url: str) -> str | None:
-        # Priority chain: 2Captcha → CapSolver.
+        # 2Captcha only — CapSolver does not solve the hCaptcha variants the
+        # modules encounter (Sophos, FortiGuard) so it's intentionally skipped.
         if self.twocaptcha_key:
             for attempt in range(3):
                 logger.info(f"[*] hCaptcha: 2Captcha attempt {attempt + 1}/3")
@@ -87,15 +78,7 @@ class DualCaptchaSolver:
                     return token
                 logger.warning(f"[!] 2Captcha attempt {attempt + 1} failed")
 
-        if self.capsolver_key:
-            for attempt in range(3):
-                logger.info(f"[*] hCaptcha: CapSolver attempt {attempt + 1}/3")
-                token = self._capsolver_hcaptcha(sitekey, page_url)
-                if token:
-                    return token
-                logger.warning(f"[!] CapSolver attempt {attempt + 1} failed")
-
-        logger.error("[-] hCaptcha: All solvers exhausted")
+        logger.error("[-] hCaptcha: 2Captcha exhausted (CapSolver skipped — does not support this hCaptcha)")
         return None
 
     # ──── 2Captcha implementations ────

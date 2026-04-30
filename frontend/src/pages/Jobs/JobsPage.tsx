@@ -6,8 +6,25 @@ import { useWebSocket } from '@/context/WebSocketContext'
 import StatusBadge from '@/components/StatusBadge'
 import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react'
 
-function AnsiLog({ text }: { text: string }) {
-  if (!text) return <span className="text-white font-bold">No logs captured for this vendor.</span>
+function AnsiLog({ text, status }: { text: string; status?: string }) {
+  if (!text) {
+    const inProgress = status === 'running' || status === 'pending'
+    if (inProgress) {
+      return (
+        <span className="inline-flex items-center gap-2 text-zinc-300">
+          <Loader2 size={12} className="animate-spin" />
+          Logs are being captured&hellip;
+        </span>
+      )
+    }
+    if (!status) {
+      // Vendor result row not present yet — task hasn't reached this vendor.
+      return <span className="text-zinc-300">Logs not captured yet.</span>
+    }
+    // status is 'success' or 'failed' but logs are still empty — genuinely no
+    // captured output (rare, but possible for a hard early failure).
+    return <span className="text-white font-bold">No logs captured for this vendor.</span>
+  }
 
   const ansiColors: Record<string, string> = {
     '30': '#6b7280', '31': '#ef4444', '32': '#22c55e', '33': '#eab308',
@@ -119,7 +136,6 @@ export default function JobsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Editorial header — left-aligned, with right-side live indicator */}
       <header className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div className="max-w-[40rem]">
           <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70 mb-2">
@@ -315,7 +331,7 @@ function JobRow({ job, displayStatus, domainName, total, done, allDone, entries,
                   )}
                   <div className="bg-[hsl(260,22%,6%)] rounded-md border border-border p-3 overflow-y-auto resize-y" style={{ minHeight: '6rem', height: '20rem', maxHeight: '80vh' }}>
                     <pre className="text-[11px] font-mono text-zinc-100 whitespace-pre-wrap leading-relaxed">
-                      <AnsiLog text={filterLogs(logsMap[selectedVendor].logs)} />
+                      <AnsiLog text={filterLogs(logsMap[selectedVendor].logs)} status={logsMap[selectedVendor].status} />
                     </pre>
                   </div>
                 </div>
