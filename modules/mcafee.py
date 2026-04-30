@@ -1,5 +1,5 @@
 import traceback, re, time
-from typing import Optional
+from typing import Optional, Tuple
 from helpers.constants import *
 from helpers.utils import *
 from helpers.logger import *
@@ -30,7 +30,7 @@ class McAfee:
         self.submit_review_btn = "input[value='Submit URL for Review']"
 
 
-    def check(self, driver, target_url: str, return_reputation_only: bool = False) -> Optional[str]:
+    def check(self, driver, target_url: str, return_reputation_only: bool = False) -> Tuple[Optional[str], Optional[str]]:
         self.logger.info(f" Targeting mcafee ".center(60, "="))
         self.logger.info(f"[*] Using vendor endpoint at: {self.url}")
 
@@ -78,7 +78,9 @@ class McAfee:
             reputation = self.extract_reputation(body_text)
             self.logger.success(f"[+] Reputation: {reputation.upper()}")
 
-            return category
+            # Return (reputation, category) tuple so the bridge can populate both DB
+            # columns. The old single-value return discarded the reputation silently.
+            return reputation, category
 
         except Exception as e:
             self.logger.error(f"[-] McAfee check failed: {str(e)}")
@@ -127,33 +129,37 @@ class McAfee:
 
     def extract_reputation(self, body_text: str) -> str:
         reputation = "NOT FOUND"
+        # McAfee only emits one of these labels in the result table.
+        risk_pattern = re.compile(
+            r"\b(Minimal|Low|Medium|High|Unverified)\s+Risk\b",
+            re.IGNORECASE,
+        )
         try:
-            lines = body_text.split("\n")
-
-            for line in lines:
-                line_lower = line.lower().strip()
-                if "risk" in line_lower:
-                    parts = line.split("\t")
-                    for part in parts:
-                        part = part.strip()
-                        if part and part not in ["URL", "Status", "Categorization", "Trust", "-"]:
-                            if "risk" in part.lower():
-                                reputation = part
-                                break
-                    if reputation != "NOT FOUND":
-                        break
+            for line in body_text.split("\n"):
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                # Skip the help-text paragraph on the feedback page that mentions
+                # "risk" in prose — it's not a rating.
+                lowered = stripped.lower()
+                if "suggest changes" in lowered or "anonymous submissions" in lowered:
+                    continue
+                m = risk_pattern.search(stripped)
+                if m:
+                    reputation = f"{m.group(1).title()} Risk"
+                    break
         except Exception as e:
             self.logger.debug(f"[*] Could not extract reputation: {e}")
 
         return reputation
 
 
-    def submit(self, driver, url: str, email: str, category: str) -> None:
+    def submit(self, driver, url: str, email: str, category: str, custom_text: Optional[str] = None) -> None:
         for protocol_url in prepare_urls_for_submission(url):
-            self.submit_single_url(driver, protocol_url, email, category)
+            self.submit_single_url(driver, protocol_url, email, category, custom_text=custom_text)
 
 
-    def submit_single_url(self, driver, url: str, email: str, category: str) -> None:
+    def submit_single_url(self, driver, url: str, email: str, category: str, custom_text: Optional[str] = None) -> None:
         try:
             self.logger.info(f" Targeting mcafee ".center(60, "="))
             self.logger.info("[*] Starting submission process on McAfee feedback page")
@@ -190,7 +196,7 @@ class McAfee:
             self.logger.info(f"[*] Selected category 1: {vendor_category}")
 
             # Fill optional comment
-            wait_and_input_on_element(driver, self.comment_input, construct_reason_for_review_comment(url, vendor_category, simple_message=True))
+            wait_and_input_on_element(driver, self.comment_input, construct_reason_for_review_comment(url, vendor_category, simple_message=True, custom_text=custom_text))
 
             # Click "Submit URL for Review"
             wait_and_click_on_element(driver, self.submit_review_btn)

@@ -154,12 +154,12 @@ class TalosIntelligence:
             self.logger.error(f"[-] Login failed: {str(e)}")
 
 
-    def submit(self, driver, url: str, email: str, category: str) -> None:
+    def submit(self, driver, url: str, email: str, category: str, custom_text: Optional[str] = None) -> None:
         for protocol_url in prepare_urls_for_submission(url):
-            self.submit_single_url(driver, protocol_url, email, category)
+            self.submit_single_url(driver, protocol_url, email, category, custom_text=custom_text)
 
 
-    def submit_single_url(self, driver, url: str, email: str, category: str) -> None:
+    def submit_single_url(self, driver, url: str, email: str, category: str, custom_text: Optional[str] = None) -> None:
         self.log_in(driver)
         category_result_value = self.check(driver, url)
 
@@ -210,7 +210,7 @@ class TalosIntelligence:
                 self.logger.info(f"[*] Entered category: {vendor_category}")
 
             # Fill comments
-            wait_and_input_on_element(driver, self.comments_textarea, construct_reason_for_review_comment(url, vendor_category))
+            wait_and_input_on_element(driver, self.comments_textarea, construct_reason_for_review_comment(url, vendor_category, custom_text=custom_text))
 
             # Enable and click submit button
             driver.execute_script(f"document.querySelector('{self.submit_disputes_btn}').disabled = false; document.querySelector('{self.submit_disputes_btn}').classList.remove('disabled');")

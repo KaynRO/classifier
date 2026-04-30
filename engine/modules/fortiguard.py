@@ -340,7 +340,7 @@ class FortiGuard:
         return False
 
 
-    def submit(self, driver, url: str, email: str, category: str) -> None:
+    def submit(self, driver, url: str, email: str, category: str, custom_text: Optional[str] = None) -> None:
         # Submit URL recategorization request via FortiGuard's form.
         # Retries up to 5 times (matching the check flow): each attempt re-navigates,
         # re-fills the form, re-runs ALTCHA PoW, and drives the image-captcha loop.
@@ -354,7 +354,7 @@ class FortiGuard:
         submit_url = "https://www.fortiguard.com/faq/wfratingsubmit"
         clean_url = url if url.startswith(("http://", "https://")) else f"https://{url}"
         vendor_category = categories_map.get(category, {}).get("FortiGuard", category)
-        reason = construct_reason_for_review_comment(clean_url, vendor_category, simple_message=True)
+        reason = construct_reason_for_review_comment(clean_url, vendor_category, simple_message=True, custom_text=custom_text)
 
         success_markers = ("success", "thank", "received", "submitted")
         last_error: Optional[str] = None

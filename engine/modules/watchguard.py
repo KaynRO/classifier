@@ -106,12 +106,12 @@ class Watchguard:
         return cat_val
 
 
-    def submit(self, driver, url: str, email: str, category: str) -> None:
+    def submit(self, driver, url: str, email: str, category: str, custom_text: Optional[str] = None) -> None:
         for protocol_url in prepare_urls_for_submission(url):
-            self.submit_single_url(driver, protocol_url, email, category)
+            self.submit_single_url(driver, protocol_url, email, category, custom_text=custom_text)
 
 
-    def submit_single_url(self, driver, url: str, email: str, category: str) -> None:
+    def submit_single_url(self, driver, url: str, email: str, category: str, custom_text: Optional[str] = None) -> None:
         cat_val = self.check(driver, url)
 
         if str(category) in str(cat_val):
@@ -122,7 +122,8 @@ class Watchguard:
 
         # Fill suggestion and solve second CAPTCHA
         wait_for_selector(driver, self.comment_field, state="visible", timeout=10000)
-        wait_and_input_on_element(driver, self.comment_field, f"{url}, {category}")
+        comment = custom_text.strip() if custom_text and custom_text.strip() else f"{url}, {category}"
+        wait_and_input_on_element(driver, self.comment_field, comment)
         solve_google_recaptcha(driver)
         handle_cookie_consent(driver)
 
