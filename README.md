@@ -34,7 +34,7 @@ Frontend (nginx)  ←→  Web (FastAPI)  ←→  Postgres
 | Zvelo | Category | ✓ | ✓ | SeleniumBase UC mode |
 | WatchGuard | Category | ✓ | ✓ | SeleniumBase + Azure AD B2C login |
 | Talos Intelligence | Category | ✓ | ✓ | SeleniumBase + Cisco SSO |
-| Sophos Intelix | Category | ✓ | ✓ | Playwright + BrightData Scraping Browser (hCaptcha) |
+| Sophos Intelix | Category | ✗ | ✗ | hCaptcha not solvable by 2Captcha or CapSolver right now; manual fallback only |
 | FortiGuard | Category | ✓ | ✓ | Playwright + BrightData + ALTCHA proof-of-work + image captcha (2Captcha/CapSolver/local OCR fallback) |
 | CheckPoint | Category | ✓ | — | SeleniumBase + Auth0 login + TOTP MFA (pyotp) |
 | VirusTotal | Reputation | ✓ | — | API, reports N/M harmless engines |
