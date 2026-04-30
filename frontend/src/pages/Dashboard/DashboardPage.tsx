@@ -4,7 +4,8 @@ import { dashboardApi } from '@/api/client'
 import { useWebSocket } from '@/context/WebSocketContext'
 import StatusBadge from '@/components/StatusBadge'
 import CategoryBadge from '@/components/CategoryBadge'
-import { Globe, Shield, AlertTriangle, Clock, RefreshCw, ArrowRight, CheckCircle2, MinusCircle, AlertCircle } from 'lucide-react'
+import { RefreshCw, ArrowRight, CheckCircle2, MinusCircle, AlertCircle } from 'lucide-react'
+import StatsBento from './StatsBento'
 
 type Bucket = 'match' | 'neutral' | 'suspicious' | 'unchecked'
 
@@ -174,42 +175,39 @@ export default function DashboardPage() {
 
   const { messages } = useWebSocket()
 
-  const stats = [
-    { label: 'Active Domains', value: summary?.active_domains ?? '--', icon: Globe, color: 'text-blue-500' },
-    { label: 'Total Vendors', value: summary?.total_vendors ?? '--', icon: Shield, color: 'text-emerald-500' },
-    { label: 'Mismatches', value: summary?.domains_with_mismatches ?? '--', icon: AlertTriangle, color: 'text-amber-500' },
-    { label: 'Pending Jobs', value: summary?.pending_jobs ?? '--', icon: Clock, color: 'text-purple-500' },
-  ]
-
   const rows = matrix?.items || []
 
   return (
-    <div className="space-y-8">
-      <div className="flex items-start justify-between">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight">Dashboard</h2>
-          <p className="text-muted-foreground mt-1">Per-domain classification summary across all vendors</p>
+    <div className="space-y-10">
+      {/* Asymmetric editorial header — left-aligned title with right-side meta + CTA */}
+      <header className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between md:gap-12">
+        <div className="max-w-[34rem]">
+          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70 mb-2">
+            Overview · Live
+          </p>
+          <h2 className="text-4xl md:text-5xl font-semibold tracking-tighter leading-[0.95]">
+            Domain
+            <span className="text-muted-foreground/40"> classification</span>
+          </h2>
+          <p className="text-sm text-muted-foreground mt-3 leading-relaxed">
+            Per-domain summary across every reputation and category vendor. Auto-refreshes every 10s.
+          </p>
         </div>
         <Link
           to="/domains"
-          className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-primary px-3 py-1.5 rounded border border-border hover:border-primary/40 transition-colors"
+          className="group inline-flex items-center gap-2 self-start md:self-auto px-4 py-2.5 rounded-xl border border-white/10 hover:border-primary/40 bg-white/[0.02] hover:bg-primary/[0.06] transition-colors text-sm font-medium"
         >
           All domains
-          <ArrowRight size={14} />
+          <ArrowRight size={14} className="transition-transform duration-300 group-hover:translate-x-0.5" />
         </Link>
-      </div>
+      </header>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map(({ label, value, icon: Icon, color }) => (
-          <div key={label} className="rounded-lg border border-border bg-card p-6">
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-muted-foreground">{label}</p>
-              <Icon size={20} className={color} />
-            </div>
-            <p className="text-3xl font-bold mt-2">{value}</p>
-          </div>
-        ))}
-      </div>
+      <StatsBento
+        activeDomains={summary?.active_domains}
+        totalVendors={summary?.total_vendors}
+        mismatches={summary?.domains_with_mismatches}
+        pendingJobs={summary?.pending_jobs}
+      />
 
       <div className="rounded-lg border border-border bg-card overflow-hidden">
         <div className="px-5 py-3 border-b border-border bg-[hsl(var(--table-header,var(--secondary)))] flex items-center justify-between">

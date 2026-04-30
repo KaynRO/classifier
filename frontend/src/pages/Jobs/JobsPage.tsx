@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, memo } from 'react'
+import { motion } from 'framer-motion'
 import { useQuery } from '@tanstack/react-query'
 import { jobsApi, vendorsApi, domainsApi } from '@/api/client'
 import { useWebSocket } from '@/context/WebSocketContext'
@@ -113,22 +114,27 @@ export default function JobsPage() {
 
   const { messages } = useWebSocket()
 
+  const total = data?.total ?? data?.items?.length ?? 0
+  const runningCount = (data?.items || []).filter((j: any) => j.status === 'running' || j.status === 'pending').length
+
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight">Jobs</h2>
-        <p className="text-sm text-muted-foreground mt-0.5">Track vendor check and submission operations</p>
-      </div>
-
-      {messages.length > 0 && (
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-          </span>
-          Live updates active
+      {/* Editorial header — left-aligned, with right-side live indicator */}
+      <header className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+        <div className="max-w-[40rem]">
+          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70 mb-2">
+            Operations · {total} {total === 1 ? 'job' : 'jobs'}
+          </p>
+          <h2 className="text-3xl md:text-5xl font-semibold tracking-tighter leading-[0.95]">
+            Live job
+            <span className="text-muted-foreground/40"> stream</span>
+          </h2>
+          <p className="text-sm text-muted-foreground mt-3 leading-relaxed">
+            Every vendor check and submission, with live status, captured logs, and timing.
+          </p>
         </div>
-      )}
+        <JobsLiveBadge running={runningCount} streaming={messages.length > 0} />
+      </header>
 
       <div className="rounded-lg border border-border bg-card overflow-hidden">
         <table className="w-full text-sm">
@@ -327,3 +333,40 @@ function JobRow({ job, displayStatus, domainName, total, done, allDone, entries,
     </>
   )
 }
+
+// Isolated client-only motion island for the header live indicator.
+const JobsLiveBadge = memo(function JobsLiveBadge({ running, streaming }: { running: number; streaming: boolean }) {
+  const live = streaming || running > 0
+  return (
+    <div className="flex items-center gap-3 self-start md:self-auto">
+      <div
+        className={`
+          inline-flex items-center gap-2 rounded-2xl px-3.5 py-2 text-[11px] font-medium
+          border transition-colors
+          ${live
+            ? 'border-emerald-500/30 bg-emerald-500/[0.06] text-emerald-300'
+            : 'border-white/10 bg-white/[0.02] text-muted-foreground/80'}
+        `}
+      >
+        <span className="relative inline-flex h-2 w-2">
+          {live && (
+            <motion.span
+              animate={{ scale: [1, 2.2, 1], opacity: [0.7, 0, 0.7] }}
+              transition={{ duration: 1.6, repeat: Infinity, ease: 'easeOut' }}
+              className="absolute inset-0 rounded-full bg-emerald-400"
+            />
+          )}
+          <span className={`relative inline-flex h-2 w-2 rounded-full ${live ? 'bg-emerald-400' : 'bg-zinc-500'}`} />
+        </span>
+        <span className="font-mono tracking-wider uppercase">
+          {live ? 'Live' : 'Idle'}
+        </span>
+        {running > 0 && (
+          <span className="ml-1 rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-emerald-300 text-[10px] tabular-nums">
+            {running} running
+          </span>
+        )}
+      </div>
+    </div>
+  )
+})

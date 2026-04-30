@@ -367,30 +367,53 @@ export default function DomainsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight">Domain Categorization & Safety</h2>
-          <p className="text-sm text-muted-foreground mt-0.5">Threat reputation and web proxy categorization across security vendors</p>
+      {/* Asymmetric editorial header — split-screen with action panel on the right */}
+      <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+        <div className="max-w-[42rem]">
+          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70 mb-2">
+            Catalog · {data?.total ?? '—'} {data?.total === 1 ? 'domain' : 'domains'}
+          </p>
+          <h2 className="text-3xl md:text-5xl font-semibold tracking-tighter leading-[0.95]">
+            Domain
+            <span className="text-muted-foreground/40"> categorization</span>
+            <span className="block text-muted-foreground/40">
+              <span className="text-foreground/90">&amp; safety</span>
+            </span>
+          </h2>
+          <p className="text-sm text-muted-foreground mt-3 leading-relaxed">
+            Threat reputation and web proxy categorization across every configured vendor.
+          </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-col items-stretch gap-3 md:items-end md:min-w-[280px]">
           <button
             onClick={() => setShowAdd(true)}
-            className="flex items-center gap-2 px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:brightness-110 transition-all"
+            className="
+              group inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-2xl
+              bg-primary text-primary-foreground text-sm font-medium
+              shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_10px_28px_-12px_hsl(var(--primary)/0.6)]
+              hover:brightness-110 active:translate-y-px transition-all duration-200
+            "
           >
-            <Plus size={14} /> Add Domain
+            <Plus size={14} strokeWidth={2.25} className="transition-transform duration-300 group-hover:rotate-90" />
+            Add domain
           </button>
+          <div className="relative w-full md:w-[280px]">
+            <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground/70" />
+            <input
+              type="text"
+              placeholder="Search…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="
+                w-full pl-9 pr-4 py-2.5 rounded-2xl text-sm
+                bg-card/80 border border-white/10
+                focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/30
+                placeholder:text-muted-foreground/50
+                transition-all
+              "
+            />
+          </div>
         </div>
-      </div>
-
-      <div className="relative max-w-md">
-        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-        <input
-          type="text"
-          placeholder="Search domains..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          className="w-full pl-9 pr-4 py-2 rounded-md border border-input bg-card text-sm focus:outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/50"
-        />
       </div>
 
       <section className={`rounded-lg border border-border bg-card overflow-hidden${safetyCollapsed ? ' border-b-0' : ''}`}>
