@@ -9,6 +9,19 @@ import { CATEGORIES, HIDDEN_VENDORS, getManualUrl } from '@/lib/constants'
 import { Link } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 
+// Treat a result as failing if the task itself errored OR the category text
+// is a vendor-side error marker (Captcha Failed, Timeout, Error, ...).
+// On the next successful run, the result row is overwritten with the new
+// status/category, so the manual link clears automatically.
+const RESULT_ERROR_MARKERS = ['captcha failed', 'altcha failed', 'login failed', 'playwright missing', 'rate limited', 'no key', 'timeout']
+function isErrorResult(result: any): boolean {
+  if (!result) return false
+  if (result.status === 'failed') return true
+  const cat = (result.category || '').toLowerCase().replace(/[-_]+/g, ' ')
+  if (cat === 'error' || cat.startsWith('error ') || cat.startsWith('error(')) return true
+  return RESULT_ERROR_MARKERS.some(p => cat.includes(p))
+}
+
 function reputationString(r: any): string {
   return r?.reputation || r?.category || ''
 }
@@ -141,30 +154,38 @@ function useResizableColumns(count: number, defaultW: (i: number) => number, sto
 
 // Persistent column order keyed by stable vendor name. Newcomers appended at
 // the end; removed vendors dropped silently.
+function readStoredOrder(storageKey?: string): string[] {
+  if (!storageKey || typeof window === 'undefined') return []
+  try {
+    const raw = window.localStorage.getItem(storageKey)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed) && parsed.every(n => typeof n === 'string')) return parsed
+  } catch { /* ignore */ }
+  return []
+}
+
 function useColumnOrder(items: string[], storageKey?: string) {
   const itemsKey = items.join('|')
 
   const [order, setOrder] = useState<string[]>(() => {
-    if (!storageKey || typeof window === 'undefined') return items.slice()
-    try {
-      const raw = window.localStorage.getItem(storageKey)
-      if (raw) {
-        const parsed = JSON.parse(raw)
-        if (Array.isArray(parsed) && parsed.every(n => typeof n === 'string')) {
-          const known = new Set(parsed)
-          const existing = parsed.filter((n: string) => items.includes(n))
-          const newcomers = items.filter(n => !known.has(n))
-          return [...existing, ...newcomers]
-        }
-      }
-    } catch { /* ignore */ }
-    return items.slice()
+    const stored = readStoredOrder(storageKey)
+    const source = stored.length > 0 ? stored : items
+    const known = new Set(source)
+    const existing = source.filter(n => items.includes(n))
+    const newcomers = items.filter(n => !known.has(n))
+    return [...existing, ...newcomers]
   })
 
   useEffect(() => {
     setOrder(prev => {
-      const known = new Set(prev)
-      const existing = prev.filter(n => items.includes(n))
+      // If prev is empty (first mount before vendors loaded), fall back to
+      // localStorage — otherwise the reconcile would clobber the user's
+      // saved order with the default one.
+      const stored = readStoredOrder(storageKey)
+      const source = prev.length > 0 ? prev : stored
+      const known = new Set(source)
+      const existing = source.filter(n => items.includes(n))
       const newcomers = items.filter(n => !known.has(n))
       const next = [...existing, ...newcomers]
       const same = next.length === prev.length && next.every((n, i) => n === prev[i])
@@ -644,7 +665,7 @@ function SafetyRow({ domain, reputationVendors, bulkPending, onDelete }: { domai
       {reputationVendors.map((v: any) => {
         const r = resultMap[v.id]
         const busy = r?.status === 'running' || r?.status === 'pending' || pendingVendors.has(v.name) || bulkPending
-        const lastFailed = r?.status === 'failed'
+        const lastFailed = isErrorResult(r)
         const manualUrl = lastFailed ? getManualUrl(v.name, 'check', domain.domain) : null
         const hasResult = r?.status && r.status !== 'running' && r.status !== 'pending'
         const repString = reputationString(r)
@@ -825,8 +846,8 @@ function CategorizationRow({ domain, categoryVendors, bulkPending, onDelete }: {
           const sr = submitResultMap[v.id]
           const isCheckBusy = r?.status === 'running' || r?.status === 'pending' || pendingCheck.has(v.name)
           const isSubmitBusy = sr?.status === 'running' || sr?.status === 'pending' || pendingSubmit.has(v.name)
-          const checkFailed = r?.status === 'failed'
-          const submitFailed = sr?.status === 'failed'
+          const checkFailed = isErrorResult(r)
+          const submitFailed = isErrorResult(sr)
           const manualCheckUrl = checkFailed ? getManualUrl(v.name, 'check', domain.domain) : null
           const manualSubmitUrl = submitFailed && v.supports_submit ? getManualUrl(v.name, 'submit', domain.domain) : null
           return (
