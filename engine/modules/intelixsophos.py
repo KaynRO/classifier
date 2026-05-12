@@ -8,10 +8,7 @@ from helpers.captcha_dual_solver import get_dual_solver
 HCAPTCHA_SITEKEY = "2fe029e7-318b-44ee-8ae0-ced519d390da"
 
 
-SBR_WS = os.environ.get(
-    "BRIGHTDATA_BROWSER_WS",
-    "BRIGHTDATA_BROWSER_WS_REDACTED",
-)
+SBR_WS = os.environ.get("BRIGHTDATA_BROWSER_WS", "")
 TARGET_URL = "https://intelix.sophos.com/url"
 
 
