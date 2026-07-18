@@ -1,0 +1,54 @@
+item,store,name,price,confirmed,method,http,raw,url
+2,Dedeman,Puffer Ferroli FB 500 izolat,3716.0,True,meta,200,3716.00,https://www.dedeman.ro/ro/puffer-500-litri-rezervor-de-acumulare-ferroli-fb-500-din-otel-cu-izolatie/p/2022960-2022690
+2,Leroy Merlin,Puffer Ferroli 500L izolat (37163),,False,blocat(http 403),403,,https://www.leroymerlin.ro/produse/rezistente-supape-si-alte-accesorii/958/puffer-rezervor-ferroli-izolat-pentru-cazane-max-3-bar-1-12-500-l/37163
+2,Romstal,Acumulator Romstal Vision 500L,3386.21,False,price_log 2026-06-19,200,,https://www.romstal.ro/acumulator-incalzire-romstal-vision-500-l-montaj-vertical.html
+2,eMAG,Puffer Cordivari Fit 500L,3133.9,True,json-ld,200,3133.9,https://www.emag.ro/puffer-500l-cordivari-fit-acumulator-energie-termica-fara-serpentina-izolat-pentru-centrale-pe-lemne-peleti-si-pompe-de-caldura-3251162310302/pd/DGW1M4MBM/
+3,Romstal,Vas expansiune Varem vertical 60L 10 bar,887.06,False,price_log 2026-06-19,200,,https://www.romstal.ro/vas-expansiune-universal-vertical-varem-10-bar-60l.html
+3,eMAG,Vas expansiune Reflex DE 60 (echiv.),910.0,True,json-ld,200,910.0,https://www.quickshop.ro/vas-expansiune-acm-reflex-de-60-10-bar-60-litri-p12768
+4,Dedeman,Vas expansiune VRV100 100L,599.0,True,meta,200,599.00,https://www.dedeman.ro/ro/vas-expansiune-pentru-sisteme-incalzire-vrv100-100-l/p/2002185
+4,Romstal,Vas expansiune Varem 100L 6 bar,1152.1,False,price_log 2026-06-19,200,,https://www.romstal.ro/vas-expansiune-pt-incalzire-vertical-varem-6-bar-100l.html
+4,eMAG,Vas expansiune Reflex N100 (echiv.),1019.0,True,json-ld,200,1019.0,https://www.quickshop.ro/vas-expansiune-incalzire-reflex-n-100-6-1-5-bar-100-litri-p10148
+5,Romstal,Schimbător SWEP B10T 70 plăci (ref.),3423.4099,False,price_log 2026-06-19,200,,https://www.romstal.ro/schimbator-de-caldura-brazat-otel-inox-swep-b10t-25-bari-70-placi.html
+6,Leroy Merlin,Dedurizator AquaPUR Soft 10 Simplex,,False,blocat(http 403),403,,https://www.leroymerlin.ro/produse/dedurizatoare/684/statie-de-dedurizare-aquapur-soft-10-simplex-cu-by-pass-q0.8-mch-rezervor-sare-28-kg/162202
+6,Romstal,Dedurizator Romstal Aquaone 10 Cab,1924.79,False,price_log 2026-06-19,200,,https://www.romstal.ro/statie-dedurizare-romstal-vision-aquaone-10-cab-q-0-8mc-h-bypass.html
+6,eMAG,Dedurizator AquaPUR Soft 10,2847.03,True,json-ld,200,2847.03,https://www.emag.ro/statie-de-dedurizare-dedurizator-aquapur-soft-10-48aq0111-2-6-bari-10-l-5945768012740/pd/DYJBQ0MBM/
+7,Dedeman,Pompă Wilo Yonos Pico 25/1-8 (echiv.),1520.0,True,meta,200,1520.00,https://www.dedeman.ro/ro/pompa-de-circulatie-wilo-yonos-pico-1-0-25/1-8-75-w-q-max-4-3-mc/h-pn-10-230-v/p/2027883
+7,Leroy Merlin,Pompă Ferro 25-80 (echiv.),,False,blocat(http 403),403,,https://www.leroymerlin.ro/produse/rezistente-supape-si-alte-accesorii/958/pompa-de-circulatie-ferro-25-80-h-max-8-m-l-180-mm-debit-maxim-3.3-mch/29186
+7,eMAG,Pompă Grundfos UPS 25-60/180 (echiv.),201.0,True,json-ld,200,201.0,https://www.emag.ro/pompa-recirculare-ups-grundfos-25-60-180-1-x-230-v-5-mc-h-inaltime-6-m-63394/pd/DF9ZRWBBM/
+8,Dedeman,Pompă Wilo Yonos Pico 25/1-6 (echiv.),892.0,True,meta,200,892.00,https://www.dedeman.ro/ro/pompa-de-circulatie-wilo-yonos-pico-1-0-25/1-6-41-w-q-max-3-5-mc/h-pn-10-230-v/p/2027882
+9,Romstal,DAB EVOPLUS B 150/280.50 M,9102.9297,False,price_log 2026-06-19,200,,https://www.romstal.ro/pompa-electronica-dab-evoplus-b-150-280-50-m.html
+10,Romstal,DAB EVOPLUS B 150/280.50 M (idem 9),9102.9297,False,price_log 2026-06-19,200,,https://www.romstal.ro/pompa-electronica-dab-evoplus-b-150-280-50-m.html
+11,Dedeman,Pompă Blautechnik 25-80-180 (echiv.),498.99,True,meta,200,498.99,https://www.dedeman.ro/ro/pompa-de-circulatie-blautechnik-25-80-180-h-max-8-m-q-max-10-5-mc/h-pn10-230v/p/2020903
+11,Romstal,DAB EVOPLUS 110/180 XM,3567.97,False,price_log 2026-06-19,200,,https://www.romstal.ro/pompa-circulatie-dab-evoplus-110-180xm-p50127.html
+11,eMAG,DAB EVOPLUS 110/180 XM (60150945),4049.88,True,json-ld,200,4049.88,https://www.emag.ro/pompa-recirculare-electronica-dab-evoplus-110-180-xm-60150945/pd/D24NCFBBM/
+12,Romstal,DAB EVOPLUS 110/180 XM (idem 11),3567.97,False,price_log 2026-06-19,200,,https://www.romstal.ro/pompa-circulatie-dab-evoplus-110-180xm-p50127.html
+12,eMAG,DAB EVOPLUS 110/180 XM (idem 11),4049.88,True,json-ld,200,4049.88,https://www.emag.ro/pompa-recirculare-electronica-dab-evoplus-110-180-xm-60150945/pd/D24NCFBBM/
+13,Romstal,Vană 3 căi Danfoss HFE 3 DN65,1413.48,False,price_log 2026-06-19,200,,https://www.romstal.ro/vana-3-cai-danfoss-hfe-3-dn-65.html
+14,Romstal,Servomotor Danfoss AMB 162,850.49,False,price_log 2026-06-19,200,,https://www.romstal.ro/servomotor-danfoss-amb-162-230v-60-secunde.html
+15,Dedeman,Filtru PUR 3 UF AquaPur,470.0,True,meta,200,470.00,https://www.dedeman.ro/ro/filtru-apa-potabila-cu-ultrafiltrare-pur-3-uf-aquapur-10/p/2021327
+15,Romstal,Filtru Valrom PUR 3UF 10,618.16,True,json-ld,200,618.16,https://www.romstal.ro/sistem-ultra-filtrare-apa-in-3-trepte-valrom-pur-3uf-10.html
+15,eMAG,Filtru PUR 3 UF AquaPur,789.0,True,json-ld,200,789.0,https://www.emag.ro/filtru-apa-potabila-cu-ultrafiltrare-pur-3-uf-aquapur-10-n165/pd/DWHNGLYBM/
+15,Bricodepot,Filtru Aquaphor Crystal (echiv.),,False,eroare:ReadTimeout,,,https://www.bricodepot.ro/filtru-apa-crystal-trei-trepte-filtrare-aquaphor/cpd/101080896/
+18,Romstal,"Panou Atrea CP Touch (echiv., climasoft)",,False,blocat(http 403),403,,https://www.climasoft.ro/panou-de-control-digital-atrea-cp-touch
+19,Romstal,Ascensor MP GO (arhispec),,False,negăsit,200,,https://arhispec.ro/produs/ascensor-gearless-mp-go-evolution
+20,Dedeman,Panou solar Sontec 30 tuburi,3253.0,True,meta,200,3253.00,https://www.dedeman.ro/ro/panou-solar-presurizat-sontec-spa-s58/1800a-inox-30-tuburi-montaj-pe-sarpanta-kit-montaj-inclus-apa-calda-5-persoane/p/2029978
+20,Romstal,Panou solar Romstal 1800/30 tuburi,3799.0,True,json-ld,200,3799.0,https://www.romstal.ro/panou-solar-cu-tuburi-vidate-romstal-500-presurizat-1800-30-tuburi-1-8-kw.html
+21,Dedeman,Cablu solar H1Z2Z2-K 6mmp,6.36,True,meta,200,6.36,https://www.dedeman.ro/ro/cablu-solar-h1z2z2-k-1-x-6-mmp-pentru-sisteme-fotovoltaice-negru/p/1064036
+21,Leroy Merlin,Cofret Schneider IP65 (echiv.),,False,blocat(http 403),403,,https://www.leroymerlin.ro/produse/tablouri-electrice/620/cofret-aparent-schneider-8-module-montaj-aparent-ip65/6785
+21,Romstal,Power meter Huawei DTSU666-H,770.22,False,price_log 2026-06-19,200,,https://www.romstal.ro/power-meter-trifazat-dtsu666-h-huawei.html
+21,eMAG,Kit fotovoltaic 20kW Huawei+Jinko,84448.0,True,json-ld,200,84448.0,https://www.emag.ro/kit-panouri-fotovoltaice-20-kw-trifazat-complet-si-cu-montaj-inclus-huawei-jinko-20kw-t-j475/pd/DC6LKXYBM/
+23,Romstal,Pompă submersibilă DAB S4 1/13 KIT,4163.26,True,json-ld,200,4163.26,https://www.romstal.ro/pompa-submersibila-s4-1-13-0-5hp-kit-4ol.html
+24,eMAG,Rezervor subteran GRP 3000L (Fibromar),3771.0,True,json-ld,200,3771.0,https://fibromar.ro/produs/rezervor-apa-pluviala-fibra-de-sticla-subteran-3000-l/
+25,eMAG,Grup electrogen NPR-50 50kVA (echiv.),36422.21,True,json-ld,200,36422.21,https://www.emag.ro/grup-electrogen-generator-electric-50-kva-cu-carcasa-si-aar-ats-npr-50/pd/DM29T4BBM/
+27,Dedeman,Ventilator Vortice Lineo 125,769.0,True,meta,200,769.00,https://www.dedeman.ro/ro/ventilator-industrial-axial-pentru-tubulatura-vortice-lineo-125-plastic-ipx5-33-w-2140-rpm-365-mc/h-d-125-mm-220-240-v/p/2029562
+27,Leroy Merlin,Ventilator Vents In-Line 125,,False,blocat(http 403),403,,https://www.leroymerlin.ro/produse/ventilatie-baie/703/ventilator-in-line-125-mm-280-m3h-vents/22192
+27,eMAG,Ventilator S&P TD-350/125 Silent,,False,blocat(http 511),511,,https://www.emag.ro/ventilator-de-tubulatura-in-line-soler-palau-td-350-125-silent-5211360400/pd/DJHSKDMBM/
+27,Bricodepot,Ventilator Vents 125 axial,,False,eroare:ReadTimeout,,,https://www.bricodepot.ro/ventilator-axial-pentru-tubulatura-vents-23-37-w-125-mm-alb/cpd/100857765/
+28,Dedeman,Ventilator baie Vents D 120 (174 mc/h),70.89,True,meta,200,70.89,https://www.dedeman.ro/ro/ventilator-baie-axial-vents-d-cu-plasa-insecte-plastic-ip34-17-w-174-mc/h-d-120-mm/p/2034125
+28,Leroy Merlin,Ventilator Vents D125 185 m³/h,,False,blocat(http 403),403,,https://www.leroymerlin.ro/produse/ventilatoare-baie/703/ventilator-vents-d-125-mm-185-m3h-cu-jaluzele-automate/22187
+28,eMAG,Ventilator Dospel Polo 5 150 mc/h,147.44,True,json-ld,200,147.44,https://www.emag.ro/ventilator-cu-senzor-de-umiditate-si-timer-diametru-120-mm-cu-debit-150-mc-h-dospel-polo-5-alb-20-007-0114/pd/D2M803BBM/
+28,Bricodepot,Ventilator Vents 125 + timer,,False,eroare:ReadTimeout,,,https://www.bricodepot.ro/incalzire-si-climatizare/sisteme-de-ventilatie/fan-vents-switch-timer-125mat.html
+29,Dedeman,Ventilator baie Vents D 120 (174 mc/h),70.89,True,meta,200,70.89,https://www.dedeman.ro/ro/ventilator-baie-axial-vents-d-cu-plasa-insecte-plastic-ip34-17-w-174-mc/h-d-120-mm/p/2034125
+29,Leroy Merlin,Ventilator Vents D125 185 m³/h,,False,blocat(http 403),403,,https://www.leroymerlin.ro/produse/ventilatoare-baie/703/ventilator-vents-d-125-mm-185-m3h-cu-jaluzele-automate/22187
+29,eMAG,Ventilator Dospel Polo 5 150 mc/h,147.44,True,json-ld,200,147.44,https://www.emag.ro/ventilator-cu-senzor-de-umiditate-si-timer-diametru-120-mm-cu-debit-150-mc-h-dospel-polo-5-alb-20-007-0114/pd/D2M803BBM/
+29,Bricodepot,Ventilator Vents 125 + timer,,False,eroare:ReadTimeout,,,https://www.bricodepot.ro/incalzire-si-climatizare/sisteme-de-ventilatie/fan-vents-switch-timer-125mat.html
