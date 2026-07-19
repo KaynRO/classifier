@@ -71,29 +71,57 @@ def is_allowance(name, um):
     return bool(ALLOW_RE.search(str(name or "")))
 
 
-def best_match(query, results):
-    """Pick the best result; return (title, url, overlap, ratio)."""
+NUM_RE = re.compile(r'\d+(?:[.,]\d+)?(?:/\d+)?')
+
+
+def tokenize(text):
+    """Return (alpha_tokens, num_tokens) from a material name / title."""
+    t = re.sub(r'[\-_/\\.,;:()]+', ' ', str(text).lower())
+    alpha, nums = set(), set()
+    for w in t.split():
+        if STOP.match(w):
+            continue
+        m = NUM_RE.fullmatch(w) or (NUM_RE.search(w))
+        if any(c.isdigit() for c in w):
+            for nm in NUM_RE.findall(w):
+                nums.add(nm.replace(',', '.'))
+        wa = re.sub(r'[^a-zăâîșț]', '', w)
+        if len(wa) >= 3:
+            alpha.add(wa)
+    return alpha, nums
+
+
+def score_title(name_alpha, name_nums, title):
+    ta, tn = tokenize(title)
+    a_ov = len(name_alpha & ta)
+    n_ov = len(name_nums & tn)
+    ratio = difflib.SequenceMatcher(None, " ".join(sorted(name_alpha)),
+                                    " ".join(sorted(ta))).ratio()
+    return a_ov + 2 * n_ov + ratio, a_ov, n_ov
+
+
+def best_match(name, results):
+    """Score candidate titles against the FULL name (incl. dimensions)."""
     if not results:
         return None
-    qwords = [w for w in query.lower().split() if len(w) > 1]
-    best, bscore = None, -1
+    na, nn = tokenize(name)
+    best, bscore, binfo = None, -1, (0, 0)
     for title, url in results:
-        tl = title.lower()
-        overlap = sum(1 for w in qwords if w in tl)
-        ratio = difflib.SequenceMatcher(None, query.lower(), tl).ratio()
-        score = overlap + ratio
-        if score > bscore:
-            best, bscore = (title, url, overlap, ratio), score
-    return best
+        s, a_ov, n_ov = score_title(na, nn, title)
+        if s > bscore:
+            best, bscore, binfo = (title, url), s, (a_ov, n_ov)
+    a_ov, n_ov = binfo
+    return best[0], best[1], a_ov, n_ov, len(nn)
 
 
-def confidence(qwords, overlap, ratio):
-    """High/Medie/Scăzută based on how much of the query the match covers."""
-    n = max(1, len(qwords))
-    cov = overlap / n
-    if overlap >= 3 and cov >= 0.6:
+def confidence(a_ov, n_ov, n_nums):
+    """Ridicată/Medie/Scăzută. Penalise when the item has dimensions but the
+    matched product shares none (wrong size = classic false match)."""
+    if n_nums > 0 and n_ov == 0:
+        return "Scăzută"
+    if a_ov >= 2 and (n_ov >= 1 or n_nums == 0):
         return "Ridicată"
-    if overlap >= 2 and cov >= 0.4:
+    if a_ov >= 1:
         return "Medie"
     return "Scăzută"
 
@@ -110,14 +138,25 @@ def price_for(name, um=None):
     if not results:
         return {"query": q, "price": None, "match_name": "", "match_url": "",
                 "conf": "-", "note": "fără rezultate Dedeman"}
-    m = best_match(q, results)
+    m = best_match(name, results)
     if not m:
         return {"query": q, "price": None, "match_name": "", "match_url": "",
                 "conf": "-", "note": "fără potrivire"}
-    title, url, overlap, ratio = m
-    conf = confidence([w for w in q.split() if len(w) > 1], overlap, ratio)
-    res = S.scrape({"url": url})
-    price = res.get("price")
-    return {"query": q, "price": price, "match_name": title, "match_url": url,
+    title, url, a_ov, n_ov, n_nums = m
+    conf = confidence(a_ov, n_ov, n_nums)
+    # fetch product page once: price + authoritative product name for the audit trail
+    st, html = S.fetch(url)
+    price, pname = None, title
+    if isinstance(html, str) and not S.blocked(html, st):
+        for fn in (S.from_jsonld, S.from_meta, S.from_dataattr):
+            raw, _ = fn(html)
+            if raw and S.norm_price(raw):
+                price = S.norm_price(raw)
+                break
+        mt = re.search(r'<meta[^>]*property=["\']og:title["\'][^>]*content=["\']([^"\']+)', html) \
+            or re.search(r'<title[^>]*>(.*?)</title>', html, re.S)
+        if mt:
+            pname = re.sub(r'\s+', ' ', mt.group(1)).replace(' - Dedeman', '').strip()[:120]
+    return {"query": q, "price": price, "match_name": pname, "match_url": url,
             "conf": conf if price else "-",
             "note": ("Dedeman live" if price else "preț negăsit pe pagină")}
